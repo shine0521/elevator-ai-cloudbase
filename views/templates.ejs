@@ -1,0 +1,301 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '模板库', crumb: [{label:'模板库'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">模板库</div>
+        <div class="pd">法规模板管理 · 字段定义、版本与发布状态维护</div>
+      </div>
+      <div class="flex gap-s">
+        <% if (user && user.role === 'admin') { %>
+        <button class="btn btn-p" onclick="showCreateModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          新建模板
+        </button>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>法规模板列表</div>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width:50px">ID</th>
+              <th style="width:110px">编码</th>
+              <th>名称</th>
+              <th style="width:100px">分类</th>
+              <th style="width:70px">版本</th>
+              <th style="width:90px">状态</th>
+              <th style="width:80px">使用次数</th>
+              <th style="width:130px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="8" class="center muted" style="padding:40px">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<!-- 编辑模板弹窗 -->
+<div class="overlay" id="editModal">
+  <div class="modal" style="max-width:800px">
+    <div class="modal-h">
+      <span class="mt" id="modalTitle">编辑模板</span>
+      <button class="x" onclick="App.closeModal('editModal')">✕</button>
+    </div>
+    <div class="modal-b">
+      <input type="hidden" id="editId">
+      <div class="form-row">
+        <div class="field">
+          <label>模板编码 <span style="color:var(--danger)">*</span></label>
+          <input class="inp" id="editCode" type="text" placeholder="如: TSG-E01">
+        </div>
+        <div class="field">
+          <label>版本</label>
+          <input class="inp" id="editVersion" type="text" placeholder="如: 1.0">
+        </div>
+      </div>
+      <div class="field">
+        <label>模板名称 <span style="color:var(--danger)">*</span></label>
+        <input class="inp" id="editName" type="text" placeholder="请输入模板名称">
+      </div>
+      <div class="field">
+        <label>分类</label>
+        <select class="sel" id="editCategory">
+          <option value="曳引电梯">曳引电梯</option>
+          <option value="液压电梯">液压电梯</option>
+          <option value="自动扶梯">自动扶梯</option>
+          <option value="自动人行道">自动人行道</option>
+          <option value="杂物电梯">杂物电梯</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>描述</label>
+        <textarea class="txta" id="editDesc" rows="2" placeholder="模板描述（可选）"></textarea>
+      </div>
+      <div class="field">
+        <label>状态</label>
+        <select class="sel" id="editStatus">
+          <option value="draft">草稿</option>
+          <option value="published">已发布</option>
+          <option value="archived">已归档</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>字段定义 <button class="btn btn-o btn-xs" style="margin-left:8px" onclick="addField()">+ 添加字段</button></label>
+        <div id="fieldsContainer">
+          <div class="muted t-xs">暂无字段，点击上方按钮添加</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="btn btn-ghost btn-sm" onclick="App.closeModal('editModal')">取消</button>
+      <button class="btn btn-p btn-sm" onclick="saveTemplate()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        保存模板
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var editFields=[];
+
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+  function loadTemplates(){
+    var tbody=document.getElementById('tableBody');
+    tbody.innerHTML='<tr><td colspan="8" class="center muted" style="padding:40px">加载中…</td></tr>';
+    App.api('/api/templates').then(function(d){
+      var data=d.data||[];
+      if(data.length===0){
+        tbody.innerHTML='<tr><td colspan="8" class="center muted" style="padding:40px">暂无模板</td></tr>';
+        return;
+      }
+      tbody.innerHTML=data.map(function(t){
+        var stCls=t.status==='published'?'ok':t.status==='archived'?'gray':'mb';
+        var stTxt=t.status==='published'?'已发布':t.status==='archived'?'已归档':'草稿';
+        return '<tr>'+
+               '<td><span style="color:var(--primary);font-weight:600">#'+t.id+'</span></td>'+
+               '<td><span class="mono t-xs">'+esc(t.code||'')+'</span></td>'+
+               '<td class="cell-main">'+esc(t.name||'')+'</td>'+
+               '<td><span class="tag blue">'+esc(t.category||'')+'</span></td>'+
+               '<td class="soft t-xs">v'+esc(t.version||'1.0')+'</td>'+
+               '<td><span class="tag '+stCls+'">'+stTxt+'</span></td>'+
+               '<td class="soft center-t">'+t.usage_count+'</td>'+
+               '<td><div class="flex gap-s">'+
+               <% if (user && user.role === 'admin') { %>
+               '<button class="btn btn-o btn-xs" onclick="editTemplate('+t.id+')">编辑</button>'+
+               '<button class="btn btn-o btn-xs" onclick="deleteTemplate('+t.id+')">删除</button>'+
+               <% } else { %>
+               '<button class="btn btn-o btn-xs" onclick="viewTemplate('+t.id+')">查看</button>'+
+               <% } %>
+               '</div></td></tr>';
+      }).join('');
+    }).catch(function(){
+      tbody.innerHTML='<tr><td colspan="8" class="center" style="padding:40px;color:var(--danger)">加载失败</td></tr>';
+    });
+  }
+
+  function showCreateModal(){
+    editFields=[];
+    document.getElementById('modalTitle').textContent='新建模板';
+    document.getElementById('editId').value='';
+    document.getElementById('editCode').value='';
+    document.getElementById('editName').value='';
+    document.getElementById('editVersion').value='1.0';
+    document.getElementById('editCategory').value='曳引电梯';
+    document.getElementById('editDesc').value='';
+    document.getElementById('editStatus').value='draft';
+    renderFields();
+    App.openModal('editModal');
+  }
+  window.showCreateModal=showCreateModal;
+
+  window.viewTemplate=function(id){
+    App.api('/api/templates/'+id).then(function(d){
+      var fields=d.fields||[];
+      var fieldsHtml=fields.length>0?'<div class="kv">'+fields.map(function(f){
+        return '<span class="k">'+esc(f.field_name)+'</span><span class="v">'+esc(f.field_label||'')+' ('+esc(f.field_type)+')</span>';
+      }).join('')+'</div>':'<div class="muted">无字段定义</div>';
+      var stCls=d.status==='published'?'ok':d.status==='archived'?'gray':'mb';
+      var modal=document.createElement('div');
+      modal.className='overlay show';
+      modal.innerHTML='<div class="modal"><div class="modal-h"><span class="mt">模板详情</span><button class="x" onclick="this.closest(\'.overlay\').remove()">✕</button></div>'+
+        '<div class="modal-b"><div class="kv mb">'+
+        '<span class="k">编码</span><span class="v">'+esc(d.code||'')+'</span>'+
+        '<span class="k">名称</span><span class="v">'+esc(d.name||'')+'</span>'+
+        '<span class="k">分类</span><span class="v">'+esc(d.category||'')+'</span>'+
+        '<span class="k">版本</span><span class="v">v'+esc(d.version||'1.0')+'</span>'+
+        '<span class="k">状态</span><span class="v"><span class="tag '+stCls+'">'+esc(d.status||'')+'</span></span>'+
+        '<span class="k">使用次数</span><span class="v">'+d.usage_count+'</span></div>'+
+        '<div class="card-t mb-s" style="font-size:14px;font-weight:700">字段定义</div>'+fieldsHtml+'</div></div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+    });
+  };
+
+  window.editTemplate=function(id){
+    App.api('/api/templates/'+id).then(function(d){
+      // BUG-03：以后端返回顺序（ORDER BY sort_order, id）为准，并重建连续的 sort_order，
+      // 避免新增字段与历史字段的 sort_order 冲突导致保存后顺序错乱。
+      editFields=(d.fields||[]).map(function(f,i){ f.sort_order=i; return f; });
+      document.getElementById('modalTitle').textContent='编辑模板';
+      document.getElementById('editId').value=d.id;
+      document.getElementById('editCode').value=d.code||'';
+      document.getElementById('editName').value=d.name||'';
+      document.getElementById('editVersion').value=d.version||'1.0';
+      document.getElementById('editCategory').value=d.category||'曳引电梯';
+      document.getElementById('editDesc').value=d.description||'';
+      document.getElementById('editStatus').value=d.status||'draft';
+      renderFields();
+      App.openModal('editModal');
+    });
+  };
+
+  window.addField=function(){
+    editFields.push({field_name:'',field_label:'',field_type:'text',required:false,options:'',sort_order:editFields.length});
+    renderFields();
+  };
+
+  function renderFields(){
+    var container=document.getElementById('fieldsContainer');
+    if(editFields.length===0){
+      container.innerHTML='<div class="muted t-xs">暂无字段，点击上方按钮添加</div>';
+      return;
+    }
+    container.innerHTML=editFields.map(function(f,i){
+      // BUG-05：选项可能以 JSON 数组/竖线/逗号等多种格式存储，编辑时统一展示为逗号分隔
+      var optText=App.parseOptions(f.options_list!=null?f.options_list:f.options).join(',');
+      return '<div class="flex gap-s mb-s wrap center" data-field-row="'+i+'">'+
+             '<span class="mono t-xs muted" style="width:22px;text-align:right" title="字段顺序">'+(i+1)+'</span>'+
+             '<input class="inp" style="flex:1;min-width:120px" type="text" placeholder="字段名" value="'+esc(f.field_name)+'" onchange="updateField('+i+',\'field_name\',this.value)">'+
+             '<input class="inp" style="flex:1;min-width:120px" type="text" placeholder="显示标签" value="'+esc(f.field_label)+'" onchange="updateField('+i+',\'field_label\',this.value)">'+
+             '<select class="sel" style="width:110px" onchange="updateField('+i+',\'field_type\',this.value)"><option value="text"'+(f.field_type==='text'?' selected':'')+'>文本</option><option value="number"'+(f.field_type==='number'?' selected':'')+'>数字</option><option value="date"'+(f.field_type==='date'?' selected':'')+'>日期</option><option value="select"'+(f.field_type==='select'?' selected':'')+'>枚举(下拉)</option><option value="file"'+(f.field_type==='file'?' selected':'')+'>文件</option><option value="textarea"'+(f.field_type==='textarea'?' selected':'')+'>多行文本</option></select>'+
+             '<select class="sel" style="width:110px" onchange="updateField('+i+',\'required\',this.value===\'1\'?'+'true:'+'false)"><option value="0"'+(f.required?'':' selected')+'>非必填</option><option value="1"'+(f.required?' selected':'')+'>必填</option></select>'+
+             '<button class="btn btn-o btn-xs" onclick="moveField('+i+',-1)" title="上移"'+(i===0?' disabled':'')+'>↑</button>'+
+             '<button class="btn btn-o btn-xs" onclick="moveField('+i+',1)" title="下移"'+(i===editFields.length-1?' disabled':'')+'>↓</button>'+
+             '<button class="btn btn-o btn-xs" onclick="removeField('+i+')" title="删除">✕</button></div>'+
+             (f.field_type==='select'?'<input class="inp mb-s" style="margin-top:-2px" type="text" placeholder="选项分隔符可用 逗号/竖线/分号，如: 正常,异常,严重" value="'+esc(optText)+'" onchange="updateField('+i+',\'options\',this.value)">':'');
+    }).join('');
+  }
+
+  window.updateField=function(idx,key,val){
+    editFields[idx][key]=val;
+  };
+
+  // BUG-03：提供显式排序能力，并在每次变动后重建连续 sort_order
+  window.moveField=function(idx,delta){
+    var to=idx+delta;
+    if(to<0||to>=editFields.length) return;
+    var tmp=editFields[idx];
+    editFields[idx]=editFields[to];
+    editFields[to]=tmp;
+    reindexFields();
+    renderFields();
+  };
+
+  function reindexFields(){
+    editFields.forEach(function(f,i){ f.sort_order=i; });
+  }
+
+  window.removeField=function(idx){
+    editFields.splice(idx,1);
+    reindexFields();
+    renderFields();
+  };
+
+  window.saveTemplate=function(){
+    var id=document.getElementById('editId').value;
+    var code=document.getElementById('editCode').value.trim();
+    var name=document.getElementById('editName').value.trim();
+    var version=document.getElementById('editVersion').value.trim()||'1.0';
+    var category=document.getElementById('editCategory').value;
+    var desc=document.getElementById('editDesc').value.trim();
+    var status=document.getElementById('editStatus').value;
+
+    if(!code||!name){alert('编码和名称不能为空');return;}
+
+    // BUG-03：以界面当前顺序为唯一真相，过滤后重新编号，
+    // 不再透传可能已过期/重复的历史 sort_order。
+    var validFields=editFields.filter(function(f){return f.field_name&&f.field_label;})
+      .map(function(f,i){ return Object.assign({}, f, {sort_order:i}); });
+    var payload={code:code,name:name,version:version,category:category,description:desc,status:status,fields:validFields};
+    var method=id?'PUT':'POST';
+    var url=id?'/api/templates/'+id:'/api/templates';
+
+    App.api(url,{method:method,body:JSON.stringify(payload)}).then(function(d){
+      if(d.error){alert(d.error);return;}
+      alert(d.message||'保存成功');
+      App.closeModal('editModal');
+      loadTemplates();
+    }).catch(function(){alert('保存失败');});
+  };
+
+  window.deleteTemplate=function(id){
+    if(!confirm('确定要删除该模板吗？'))return;
+    App.api('/api/templates/'+id,{method:'DELETE'}).then(function(d){
+      alert(d.message||'删除成功');
+      loadTemplates();
+    }).catch(function(){alert('删除失败');});
+  };
+
+  loadTemplates();
+})();
+</script>
+<%- include('partials/foot') %>

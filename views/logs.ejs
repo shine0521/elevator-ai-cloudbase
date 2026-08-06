@@ -1,0 +1,285 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '司法留痕'}) %>
+  <div class="content">
+    <div class="page-hd">
+      <div>
+        <div class="pt">司法留痕 · 防篡改溯源</div>
+        <div class="pd">每条业务操作写入哈希链，按阈值生成 Merkle 根封存于 WORM 存储，可随时完整性校验</div>
+      </div>
+    </div>
+
+    <!-- WORM 存储 -->
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>WORM 存储索引 · Merkle 根封存</div>
+        <div class="flex gap-s">
+          <button class="btn btn-o btn-sm" id="btnReloadWorm" onclick="loadWormStatus()">刷新</button>
+          <button class="btn btn-p btn-sm" id="btnSeal" onclick="sealWorm()">手动封存</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div id="wormStats" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px"></div>
+        <div id="wormSeals" style="max-height:240px;overflow-y:auto"></div>
+        <div id="wormMsg" class="t-sm soft mt-s" style="min-height:18px"></div>
+      </div>
+    </div>
+
+    <!-- 哈希链验证 -->
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>哈希链验证</div>
+        <button class="btn btn-s btn-sm" id="btnVerify" onclick="verifyChain()">验证哈希链</button>
+      </div>
+      <div class="card-b">
+        <div id="verifyResult" class="t-sm mb"></div>
+        <div class="hash-box" id="hashChain"><div class="empty" style="padding:30px">加载中...</div></div>
+      </div>
+    </div>
+
+    <!-- 操作日志 -->
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>操作日志明细</div>
+        <div class="flex gap-s center">
+          <span class="t-sm soft">共 <b id="logTotal">--</b> 条记录</span>
+          <button class="btn btn-o btn-sm" onclick="exportLogs('json')">导出 JSON</button>
+          <button class="btn btn-o btn-sm" onclick="exportLogs('csv')">导出 CSV</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <!-- LOG-07：按时间范围 / 操作人 / IP 筛选并导出 -->
+        <div class="flex gap-s wrap mb" style="align-items:flex-end">
+          <div class="field" style="margin:0"><label class="t-xs">起始时间</label><input class="inp" id="fFrom" type="date" style="width:150px"></div>
+          <div class="field" style="margin:0"><label class="t-xs">截止时间</label><input class="inp" id="fTo" type="date" style="width:150px"></div>
+          <div class="field" style="margin:0"><label class="t-xs">关键词</label><input class="inp" id="fSearch" type="text" placeholder="操作/详情/操作人" style="width:190px"></div>
+          <button class="btn btn-o btn-sm" onclick="loadLogs(1)">筛选</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetFilter()">重置</button>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr><th style="width:60px">ID</th><th style="width:96px">操作</th><th>操作对象</th><th>详情</th><th style="width:130px">操作人</th><th style="width:110px">IP</th><th style="width:150px">时间</th><th style="width:64px">取证</th></tr></thead>
+            <tbody id="logsBody"><tr><td colspan="8" class="empty" style="padding:40px">加载中...</td></tr></tbody>
+          </table>
+        </div>
+        <div id="pagination" class="pg"></div>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+
+<!-- 单条日志取证详情（IP / 请求响应摘要 / 前后数据对比） -->
+<div class="overlay" id="logModal">
+  <div class="modal" style="max-width:860px">
+    <div class="modal-h"><span class="mt">司法取证详情</span><button class="x" onclick="App.closeModal('logModal')">✕</button></div>
+    <div class="modal-b" id="logModalBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var currentPage=1;
+  var logCache={};
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function pad(n){return String(n).padStart(2,'0');}
+  // BUG-04：统一走 App.fmtDT（后端 UTC → 本地）
+  function fmtDT(v){ return App.fmtDT(v, '-'); }
+
+  function filterQuery(){
+    var q=[];
+    var f=document.getElementById('fFrom').value;
+    var t=document.getElementById('fTo').value;
+    var s=document.getElementById('fSearch').value.trim();
+    if(f) q.push('from='+encodeURIComponent(f+' 00:00:00'));
+    if(t) q.push('to='+encodeURIComponent(t+' 23:59:59'));
+    if(s) q.push('search='+encodeURIComponent(s));
+    return q.join('&');
+  }
+  window.resetFilter=function(){
+    document.getElementById('fFrom').value='';
+    document.getElementById('fTo').value='';
+    document.getElementById('fSearch').value='';
+    loadLogs(1);
+  };
+  window.exportLogs=function(format){
+    var q=filterQuery();
+    window.location.href='/api/logs/export?format='+encodeURIComponent(format)+(q?'&'+q:'');
+  };
+
+  function kvRow(k,v){ return '<span class="k">'+esc(k)+'</span><span class="v">'+(v==null||v===''?'<span class="muted">--</span>':esc(v))+'</span>'; }
+  function pre(obj){
+    if(obj==null) return '<div class="muted t-xs">无</div>';
+    var s=typeof obj==='string'?obj:JSON.stringify(obj,null,2);
+    return '<pre class="mono t-xs" style="white-space:pre-wrap;word-break:break-all;background:#f6f8fb;padding:10px;border-radius:8px;max-height:220px;overflow:auto">'+esc(s)+'</pre>';
+  }
+
+  // LOG-01/02/03：展示 IP、请求/响应摘要、修改前后对比
+  window.showLogDetail=function(id){
+    var log=logCache[id];
+    if(!log){ App.toast('日志数据未缓存，请刷新','err'); return; }
+    var diff=(log.data_after_obj&&log.data_after_obj.diff)||null;
+    var changesHtml='<div class="muted t-xs">本次操作未记录数据变更</div>';
+    if(diff&&diff.changedCount){
+      changesHtml='<table class="tbl"><thead><tr><th style="width:160px">字段</th><th>修改前</th><th>修改后</th></tr></thead><tbody>'+
+        Object.keys(diff.changes).map(function(k){
+          var c=diff.changes[k];
+          var b=typeof c.before==='object'?JSON.stringify(c.before):String(c.before);
+          var a=typeof c.after==='object'?JSON.stringify(c.after):String(c.after);
+          return '<tr><td class="mono t-xs">'+esc(k)+'</td>'+
+                 '<td class="t-xs" style="color:var(--danger);word-break:break-all">'+esc(b)+'</td>'+
+                 '<td class="t-xs" style="color:var(--success);word-break:break-all">'+esc(a)+'</td></tr>';
+        }).join('')+'</tbody></table>';
+    }
+    document.getElementById('logModalBody').innerHTML=
+      '<div class="kv mb">'+
+        kvRow('日志 ID','#'+log.id)+
+        kvRow('操作类型',log.action)+
+        kvRow('操作人',(log.user_email||'')+(log.user_role?'（'+log.user_role+'）':''))+
+        kvRow('时间戳',fmtDT(log.timestamp_iso||log.timestamp))+
+        kvRow('IP 地址',log.ip_address)+
+        kvRow('请求 ID',log.request_id)+
+        kvRow('操作对象',(log.target_type||'')+(log.target_id?' #'+log.target_id:''))+
+        kvRow('链版本','v'+(log.chain_version||1))+
+      '</div>'+
+      '<div class="field"><label>User-Agent</label><div class="t-xs soft" style="word-break:break-all">'+esc(log.user_agent||'--')+'</div></div>'+
+      '<div class="field"><label>详情</label><div class="t-sm">'+esc(log.detail||'--')+'</div></div>'+
+      '<div class="card-t mb-s mt" style="font-size:14px">请求摘要</div>'+pre(log.request_digest_obj)+
+      '<div class="card-t mb-s mt" style="font-size:14px">响应摘要</div>'+pre(log.response_digest_obj)+
+      '<div class="card-t mb-s mt" style="font-size:14px">修改前后对比</div>'+changesHtml+
+      '<div class="card-t mb-s mt" style="font-size:14px">哈希链</div>'+
+      '<div class="kv">'+kvRow('prev_hash',log.prev_hash)+kvRow('hash',log.hash)+'</div>';
+    App.openModal('logModal');
+  };
+
+  function loadChain(){
+    App.api('/api/operation-logs').then(function(d){
+      var data=d.data||[];
+      document.getElementById('logTotal').textContent=d.total||data.length;
+      if(data.length===0){ document.getElementById('hashChain').innerHTML='<div class="empty" style="padding:30px">暂无日志</div>'; return; }
+      document.getElementById('hashChain').innerHTML=data.map(function(log){
+        var actColor=log.action==='CREATE'?'var(--success)':log.action==='UPDATE'?'var(--warning)':log.action==='DELETE'?'var(--danger)':'var(--primary)';
+        return '<div class="hb">'+
+               '<div><span class="hid">#'+log.id+'</span> · <span class="hact" style="color:'+actColor+'">'+esc(log.action)+'</span></div>'+
+               '<div style="margin:4px 0"><span class="hlbl">prev_hash:</span> <span class="hval">'+esc((log.prev_hash||'').substring(0,24))+'…</span></div>'+
+               '<div><span class="hlbl">hash:</span> <span class="hval">'+esc((log.hash||'').substring(0,24))+'…</span></div>'+
+               '<div style="margin-top:4px;color:var(--text-2);font-size:11px">'+esc(log.target_type||'')+' · '+esc((log.detail||'').substring(0,60))+'</div>'+
+               '<div style="color:var(--text-3);font-size:10px;margin-top:2px">'+esc(log.user_email||'')+(log.ip_address?' · IP '+esc(log.ip_address):'')+' · '+App.fmtDTS(log.timestamp_iso||log.timestamp,'-')+'</div></div>';
+      }).join('');
+    }).catch(function(){ document.getElementById('hashChain').innerHTML='<div class="empty" style="padding:30px;color:var(--danger)">加载失败</div>'; });
+  }
+
+  function loadLogs(page){
+    currentPage=page||1;
+    var tbody=document.getElementById('logsBody');
+    tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:40px">加载中...</td></tr>';
+    var q=filterQuery();
+    App.api('/api/operation-logs?page='+currentPage+'&pageSize=20'+(q?'&'+q:'')).then(function(d){
+      var data=d.data||[];
+      document.getElementById('logTotal').textContent=d.total!=null?d.total:data.length;
+      if(data.length===0){ tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:40px">暂无日志</td></tr>'; document.getElementById('pagination').innerHTML=''; return; }
+      tbody.innerHTML=data.map(function(log){
+        logCache[log.id]=log;
+        var ts=App.fmtDTS(log.timestamp_iso||log.timestamp,'-');
+        var tCls=/删除/.test(log.action)?'ng':/创建|新建|添加|发布/.test(log.action)?'ok':/更新|修改|审核|审阅/.test(log.action)?'info':'mb';
+        var hasDiff=!!(log.data_after_obj&&log.data_after_obj.diff&&log.data_after_obj.diff.changedCount);
+        return '<tr>'+
+               '<td class="mono" style="color:var(--primary-d)">#'+log.id+'</td>'+
+               '<td><span class="tag '+tCls+'">'+esc(log.action)+'</span></td>'+
+               '<td class="muted">'+esc(log.target_type||'')+(log.target_id?' #'+esc(log.target_id):'')+'</td>'+
+               '<td class="sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(log.detail||'')+'">'+esc(log.detail||'')+(hasDiff?' <span class="tag purple" style="font-size:10px">有变更</span>':'')+'</td>'+
+               '<td class="muted t-xs">'+esc(log.user_email||'')+'</td>'+
+               '<td class="mono t-xs">'+esc(log.ip_address||'--')+'</td>'+
+               '<td class="muted t-xs">'+ts+'</td>'+
+               '<td><button class="btn btn-o btn-xs" onclick="showLogDetail('+log.id+')">详情</button></td></tr>';
+      }).join('');
+      renderPagination(d.page,d.totalPages);
+    }).catch(function(){ tbody.innerHTML='<tr><td colspan="8" class="empty" style="padding:40px;color:var(--danger)">加载失败</td></tr>'; });
+  }
+
+  function renderPagination(page,totalPages){
+    var pg=document.getElementById('pagination');
+    if(totalPages<=1){pg.innerHTML='';return;}
+    var items=[];
+    // 折叠：当前页前后 ±2，首尾保留
+    var start=Math.max(1,page-2), end=Math.min(totalPages,page+2);
+    if(page>1) items.push('<a href="javascript:void(0)" data-page="'+(page-1)+'">‹ 上一页</a>');
+    if(start>1){items.push('<a href="javascript:void(0)" data-page="1">1</a>');if(start>2)items.push('<span class="dis">…</span>');}
+    for(var i=start;i<=end;i++) items.push(i===page?'<span class="on">'+i+'</span>':'<a href="javascript:void(0)" data-page="'+i+'">'+i+'</a>');
+    if(end<totalPages){if(end<totalPages-1)items.push('<span class="dis">…</span>');items.push('<a href="javascript:void(0)" data-page="'+totalPages+'">'+totalPages+'</a>');}
+    if(page<totalPages) items.push('<a href="javascript:void(0)" data-page="'+(page+1)+'">下一页 ›</a>');
+    pg.innerHTML=items.join('');
+  }
+  // 事件委托：onclick 字符串在 innerHTML 中执行时找不到 IIFE 内的 loadLogs
+  document.getElementById('pagination').addEventListener('click',function(e){
+    var a=e.target.closest('a[data-page]');
+    if(a){e.preventDefault();loadLogs(parseInt(a.getAttribute('data-page'),10));}
+  });
+
+  window.verifyChain=function(){
+    var btn=document.getElementById('btnVerify'), result=document.getElementById('verifyResult');
+    btn.disabled=true; btn.textContent='验证中...';
+    result.innerHTML='<span class="soft">正在验证哈希链完整性...</span>';
+    App.api('/api/operation-logs/verify',{method:'POST'}).then(function(d){
+      btn.disabled=false; btn.textContent='验证哈希链';
+      if(d.isValid){ result.innerHTML='<span style="color:var(--success);font-weight:700">✅ 哈希链验证通过！</span> 共 '+d.totalBlocks+' 个区块，完整无误。'; }
+      else { result.innerHTML='<span style="color:var(--danger);font-weight:700">❌ 哈希链验证失败！</span> 错误数: '+((d.errors&&d.errors.length)||0)+' 条，链已被篡改。'; }
+    }).catch(function(){ btn.disabled=false; btn.textContent='验证哈希链'; result.innerHTML='<span style="color:var(--danger)">❌ 验证失败，请重试</span>'; });
+  };
+
+  function loadWormStatus(){
+    var statsEl=document.getElementById('wormStats'), sealsEl=document.getElementById('wormSeals'), msgEl=document.getElementById('wormMsg');
+    statsEl.innerHTML='<div class="empty" style="padding:20px">加载中...</div>';
+    App.api('/api/logs/worm-status').then(function(d){
+      var data=d.data||{};
+      if(!data){ statsEl.innerHTML='<div style="color:var(--danger);padding:20px">加载失败</div>'; return; }
+      var seals=data.seals||[], latest=data.latest_seal;
+      var totalSealed=seals.reduce(function(a,s){return a+(s.record_count||0);},0);
+      var card=function(n,c,l){return '<div class="stat '+c+'"><div class="sv">'+n+'</div><div class="sl">'+l+'</div></div>';};
+      statsEl.innerHTML=
+        card(data.total_logs,'tone-blue','总日志数')+
+        card(seals.length,'tone-green','已封存区块')+
+        card(totalSealed,'tone-green','封存日志数')+
+        card(data.unsealed_count, data.unsealed_count>0?'tone-amber':'tone-gray','待封存')+
+        card(100,'tone-purple','自动封存阈值');
+      if(seals.length===0){ sealsEl.innerHTML='<div class="empty" style="padding:20px">暂无封存记录，点击「手动封存」开始首次封存</div>'; msgEl.innerHTML=''; return; }
+      sealsEl.innerHTML='<div class="tbl-wrap"><table class="tbl" style="font-size:12px"><thead><tr><th>#</th><th>日志范围</th><th>Merkle 根</th><th>记录数</th><th>封存时间</th><th>状态</th><th>操作</th></tr></thead><tbody>'+
+        seals.map(function(s){
+          var st=s.status==='sealed'?'tag mb':s.status==='verified'?'tag ok':'tag info';
+          return '<tr><td class="mono">#'+s.id+'</td>'+
+            '<td><code class="mono" style="font-size:11px">'+s.start_log_id+'-'+s.end_log_id+'</code></td>'+
+            '<td><code class="mono" style="font-size:10px;color:var(--primary-d);max-width:120px;display:block;overflow:hidden;text-overflow:ellipsis" title="'+esc(s.merkle_root)+'">'+esc(s.merkle_root).substring(0,16)+'…</code></td>'+
+            '<td>'+s.record_count+'</td>'+
+            '<td class="muted">'+fmtDT(s.seal_time)+'</td>'+
+            '<td><span class="tag '+st+'">'+s.status+'</span></td>'+
+            '<td><button class="btn btn-o btn-sm" onclick="verifyWorm('+s.id+')">验证</button></td></tr>';
+        }).join('')+'</tbody></table></div>';
+      msgEl.innerHTML=latest?'<span class="soft">最新封存: 区块#'+latest.id+' · '+latest.start_log_id+'-'+latest.end_log_id+' · '+fmtDT(latest.seal_time)+' · '+esc(latest.sealed_by)+'</span>':'';
+    }).catch(function(e){ statsEl.innerHTML='<div style="color:var(--danger);padding:20px">网络错误: '+e.message+'</div>'; });
+  }
+
+  window.sealWorm=function(){
+    var btn=document.getElementById('btnSeal'), msg=document.getElementById('wormMsg');
+    btn.disabled=true; btn.textContent='封存中...'; msg.innerHTML='<span class="soft">正在封存...</span>';
+    App.api('/api/logs/worm-seal',{method:'POST'}).then(function(d){
+      btn.disabled=false; btn.textContent='手动封存';
+      if(d.data&&d.data.sealed){ msg.innerHTML='<span style="color:var(--success)">✅ 封存成功！区块#'+d.data.sealId+'，记录数:'+d.data.recordCount+', Merkle根:'+d.data.merkleRoot.substring(0,16)+'…</span>'; loadWormStatus(); }
+      else { msg.innerHTML='<span style="color:var(--warning)">ℹ️ '+(d.message||'')+'</span>'; }
+    }).catch(function(e){ btn.disabled=false; btn.textContent='手动封存'; msg.innerHTML='<span style="color:var(--danger)">封存失败: '+e.message+'</span>'; });
+  };
+
+  window.verifyWorm=function(sealId){
+    var msg=document.getElementById('wormMsg');
+    msg.innerHTML='<span class="soft">正在验证区块#'+sealId+'...</span>';
+    App.api('/api/logs/worm-verify',{method:'POST',body:JSON.stringify({sealId:sealId})} ).then(function(d){
+      if(d.data&&d.data.isValid){ msg.innerHTML='<span style="color:var(--success)">✅ 区块#'+sealId+'验证通过！Merkle 根一致，数据完整性已确认</span>'; }
+      else { msg.innerHTML='<span style="color:var(--danger)">❌ 区块#'+sealId+'验证失败！存储Merkle:'+((d.data&&d.data.storedMerkleRoot)||'').substring(0,16)+'..., 计算Merkle:'+((d.data&&d.data.computedMerkleRoot)||'').substring(0,16)+'... 数据可能被篡改！</span>'; }
+    }).catch(function(e){ msg.innerHTML='<span style="color:var(--danger)">验证失败: '+e.message+'</span>'; });
+  };
+
+  loadWormStatus(); loadChain(); loadLogs();
+})();
+</script>
+<%- include('partials/foot') %>

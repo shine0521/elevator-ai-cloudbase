@@ -1,0 +1,102 @@
+<%
+/* ------------------------------------------------------------------
+ * BUG-01 修复：导航链接指向错误
+ *  1. “仪表盘/首页”原指向 /dashboard，而服务端仅把 /dashboard 302 到 /，
+ *     造成多余跳转，且移动端下 /dashboard 不在重定向表内，会多跳一次。
+ *  2. 高亮完全依赖前端 JS，JS 未加载/报错时整个导航无选中态。
+ *  3. 移动端访问时侧栏仍指向 PC 路径，会被设备中间件再次重定向。
+ * 修复：集中维护路由表，服务端直接输出正确 href 与 .on 选中态。
+ * ------------------------------------------------------------------ */
+var navIsMobile = (typeof isMobile !== 'undefined') ? isMobile : false;
+var navPath = (typeof currentPath !== 'undefined' && currentPath) ? currentPath : '/';
+
+/* PC 路径 → 移动端路径（与 server.js 的 PC_TO_MOBILE 保持一致） */
+var NAV_MOBILE = {
+  '/': '/mobile',
+  '/discriminate': '/mobile/discriminate',
+  '/history': '/mobile/history',
+  '/logs': '/mobile/logs',
+  '/settings': '/mobile/settings'
+};
+function navHref(pcPath){
+  return navIsMobile && NAV_MOBILE[pcPath] ? NAV_MOBILE[pcPath] : pcPath;
+}
+/* 当前路径 → page key（与 public/js/app.js 的 PATH_ALIAS 一致） */
+var NAV_ALIAS = {
+  '': 'dashboard', 'dashboard': 'dashboard', 'index': 'dashboard', 'mobile': 'dashboard',
+  'discriminate': 'discriminate', 'history': 'history', 'templates': 'templates',
+  'knowledge': 'knowledge', 'audit': 'audit', 'research': 'research',
+  'logs': 'logs', 'settings': 'settings'
+};
+var navSegs = String(navPath).replace(/^\//, '').split('/').filter(Boolean);
+var navKeyRaw = (navSegs.length > 1 && navSegs[0] === 'mobile') ? navSegs[1] : (navSegs[0] || '');
+var navPage = NAV_ALIAS[navKeyRaw] || navKeyRaw || 'dashboard';
+function navCls(page){ return 'side-it' + (navPage === page ? ' on' : ''); }
+%>
+<div class="side" id="sideBar">
+  <div class="side-h">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6"/></svg>
+    </div>
+    <div>
+      <div class="name">电梯安全管理</div>
+      <div class="sub">AI SAFETY SYSTEM</div>
+    </div>
+  </div>
+  <nav class="side-nav">
+    <div class="side-sec">主导航</div>
+    <a href="<%= navHref('/') %>" class="<%= navCls('dashboard') %>" data-page="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+      <span>仪表盘</span>
+    </a>
+    <a href="<%= navHref('/discriminate') %>" class="<%= navCls('discriminate') %>" data-page="discriminate">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>合规判别</span>
+    </a>
+    <a href="<%= navHref('/history') %>" class="<%= navCls('history') %>" data-page="history">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+      <span>判别历史</span>
+    </a>
+    <a href="/templates" class="<%= navCls('templates') %>" data-page="templates">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>
+      <span>模板库</span>
+    </a>
+    <a href="/knowledge" class="<%= navCls('knowledge') %>" data-page="knowledge">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      <span>知识库</span>
+    </a>
+
+    <% if (user && (user.role === 'auditor' || user.role === 'admin')) { %>
+    <div class="side-sec">审核闭环</div>
+    <a href="/audit" class="<%= navCls('audit') %>" data-page="audit">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span>人工审核</span>
+      <% if (typeof pendingCount !== 'undefined' && pendingCount > 0) { %><span class="badge"><%= pendingCount %></span><% } %>
+    </a>
+    <% } %>
+
+    <% if (user && user.role === 'admin') { %>
+    <div class="side-sec">专家管理</div>
+    <a href="/research" class="<%= navCls('research') %>" data-page="research">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6l-4 8a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-4-8V2"/><path d="M9 2h6M7 14h10"/></svg>
+      <span>模板研究</span>
+    </a>
+    <% } %>
+
+    <div class="side-sec">系统与留痕</div>
+    <% if (user && (user.role === 'auditor' || user.role === 'admin')) { %>
+    <a href="<%= navHref('/logs') %>" class="<%= navCls('logs') %>" data-page="logs">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+      <span>司法留痕</span>
+    </a>
+    <% } %>
+    <a href="<%= navHref('/settings') %>" class="<%= navCls('settings') %>" data-page="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 11 4.6V4a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 19.4 6c.2.6.8 1 1.41 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>系统设置</span>
+    </a>
+  </nav>
+  <div class="side-ft">
+    <span class="dot"></span>
+    <span>v4.0 · 数据司法级留痕</span>
+  </div>
+</div>

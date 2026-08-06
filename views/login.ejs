@@ -1,0 +1,68 @@
+<%- include('partials/head') %>
+<div class="login">
+  <div class="bx">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6"/></svg>
+    </div>
+    <h2>电梯安全管理 AI 系统</h2>
+    <div class="sub">特种设备电梯安全合规判别平台 · V3</div>
+
+    <form id="loginForm" autocomplete="on">
+      <div class="field">
+        <input class="inp" type="email" name="email" id="email" placeholder="邮箱地址" required autocomplete="email">
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <input class="inp" type="password" name="password" id="password" placeholder="登录密码" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-p btn-block" id="submitBtn">登 录</button>
+      <div class="err" id="errMsg"><%= (typeof error !== 'undefined' && error) ? error : '' %></div>
+    </form>
+
+    <div class="divider"></div>
+    <div class="t-xs muted center-t mb-s">演示账号（点击一键填充 · 密码 123456）</div>
+    <div class="acts">
+      <button type="button" class="btn btn-o" onclick="fillDemo('admin@demo.com')">管理员</button>
+      <button type="button" class="btn btn-o" onclick="fillDemo('auditor@demo.com')">审核员</button>
+      <button type="button" class="btn btn-o" onclick="fillDemo('user@demo.com')">普通用户</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var form = document.getElementById('loginForm');
+  var btn = document.getElementById('submitBtn');
+  var err = document.getElementById('errMsg');
+
+  window.fillDemo = function(email){
+    document.getElementById('email').value = email;
+    document.getElementById('password').value = '123456';
+    err.textContent = '';
+  };
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var email = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
+    if(!email || !password){ err.textContent = '请输入邮箱和密码'; return; }
+    err.textContent = '';
+    btn.disabled = true;
+    var oldText = btn.textContent;
+    btn.textContent = '登录中…';
+    App.api('/api/login', { method:'POST', body: JSON.stringify({ email: email, password: password }) })
+      .then(function(d){
+        if(d && d.success){
+          window.location.href = '/';
+        } else {
+          err.textContent = (d && d.error) || '登录失败，请检查邮箱或密码';
+          btn.disabled = false; btn.textContent = oldText;
+        }
+      })
+      .catch(function(){
+        err.textContent = '网络错误，请稍后重试';
+        btn.disabled = false; btn.textContent = oldText;
+      });
+  });
+})();
+</script>
+<%- include('partials/foot') %>

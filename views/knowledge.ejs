@@ -1,0 +1,588 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '知识库', crumb: [{label:'知识库'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">知识库</div>
+        <div class="pd">法规与条款库 · 展开任一法规查看其条款明细</div>
+      </div>
+      <div class="flex gap-s">
+        <button class="btn btn-ghost btn-sm" onclick="loadRegulations()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          刷新
+        </button>
+        <% if (user && user.role === 'admin') { %>
+        <button class="btn btn-p" onclick="showRegModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          新建法规
+        </button>
+        <% } %>
+      </div>
+    </div>
+
+    <!-- KB-02：五层分类体系概览 -->
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>分类体系（法律 › 行政法规 › 国家标准 › 行业标准 › 地方标准）</div>
+      </div>
+      <div class="card-b">
+        <div id="levelBar" class="flex gap-s wrap"><span class="muted t-xs">加载中…</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>法规知识库</div>
+        <span class="cs" id="regTotal"></span>
+      </div>
+      <div class="card-b">
+        <div class="flex gap-s wrap mb" style="align-items:flex-end">
+          <div class="field" style="margin:0;flex:1;min-width:200px">
+            <input class="inp" id="kSearch" type="text" placeholder="搜索法规名称/编号/条款正文（空格分隔多关键词）" onkeydown="if(event.key==='Enter')loadRegulations()">
+          </div>
+          <select class="sel" id="kLevel" style="width:130px" onchange="loadRegulations()">
+            <option value="">全部层级</option>
+          </select>
+          <select class="sel" id="kReview" style="width:130px" onchange="loadRegulations()">
+            <option value="">全部审核状态</option>
+            <option value="pending">待审核</option>
+            <option value="approved">已通过</option>
+            <option value="rejected">已驳回</option>
+            <option value="draft">草稿</option>
+          </select>
+          <button class="btn btn-o btn-sm" onclick="loadRegulations()">搜索</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetKFilter()">重置</button>
+        </div>
+        <div id="regulationsList">
+          <div class="center muted" style="padding:40px">加载中…</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<!-- 法规编辑弹窗 -->
+<div class="overlay" id="regModal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-h">
+      <span class="mt" id="regModalTitle">新建法规</span>
+      <button class="x" onclick="App.closeModal('regModal')">✕</button>
+    </div>
+    <div class="modal-b">
+      <input type="hidden" id="regEditId">
+      <div class="field">
+        <label>法规编码 <span style="color:var(--danger)">*</span></label>
+        <input class="inp" id="regCode" type="text" placeholder="如: GB 7588-2020">
+      </div>
+      <div class="field">
+        <label>法规名称 <span style="color:var(--danger)">*</span></label>
+        <input class="inp" id="regName" type="text" placeholder="请输入法规名称">
+      </div>
+      <div class="field">
+        <label>发布机构</label>
+        <input class="inp" id="regSource" type="text" placeholder="如: 国家标准化管理委员会">
+      </div>
+      <!-- KB-02：五层分类 -->
+      <div class="form-row">
+        <div class="field">
+          <label>法规层级 <span style="color:var(--danger)">*</span></label>
+          <select class="sel" id="regLevel"></select>
+        </div>
+        <div class="field">
+          <label>适用设备类型</label>
+          <input class="inp" id="regDeviceType" type="text" placeholder="如: 曳引电梯 / 自动扶梯">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>生效日期</label>
+          <input class="inp" id="regEffectiveDate" type="date">
+        </div>
+        <div class="field">
+          <label>失效日期</label>
+          <input class="inp" id="regExpireDate" type="date">
+        </div>
+      </div>
+      <!-- KB-05：版本管理 -->
+      <div class="form-row">
+        <div class="field">
+          <label>版本号</label>
+          <input class="inp" id="regVersion" type="text" placeholder="如: 1.0">
+        </div>
+        <div class="field">
+          <label>状态</label>
+          <select class="sel" id="regStatus">
+            <option value="draft">草稿</option>
+            <option value="active">生效中</option>
+            <option value="archived">已归档</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>修订说明</label>
+        <input class="inp" id="regRevisionNote" type="text" placeholder="本版本主要变更（可选）">
+      </div>
+      <div class="alert info t-xs" id="regReviewHint" style="display:none"></div>
+    </div>
+    <div class="modal-f">
+      <button class="btn btn-ghost btn-sm" onclick="App.closeModal('regModal')">取消</button>
+      <button class="btn btn-p btn-sm" onclick="saveRegulation()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 条款编辑弹窗 -->
+<div class="overlay" id="clauseModal">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-h">
+      <span class="mt" id="clauseModalTitle">添加条款</span>
+      <button class="x" onclick="App.closeModal('clauseModal')">✕</button>
+    </div>
+    <div class="modal-b">
+      <input type="hidden" id="clauseEditId">
+      <input type="hidden" id="clauseRegId">
+      <div class="field">
+        <label>条款编号 <span style="color:var(--danger)">*</span></label>
+        <input class="inp" id="clauseNumber" type="text" placeholder="如: 第1条 或 12.4.2">
+      </div>
+      <div class="field">
+        <label>条款标题</label>
+        <input class="inp" id="clauseTitle" type="text" placeholder="条款标题（可选）">
+      </div>
+      <div class="field">
+        <label>条款内容 <span style="color:var(--danger)">*</span></label>
+        <textarea class="txta" id="clauseContent" rows="4" placeholder="请输入条款内容"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>条款类别</label>
+          <select class="sel" id="clauseCategory">
+            <option value="mandatory">强制</option>
+            <option value="recommended">推荐</option>
+            <option value="general">一般</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>严重级别</label>
+          <select class="sel" id="clauseSeverity">
+            <option value="mandatory">强制项</option>
+            <option value="recommended">推荐项</option>
+            <option value="optional">可选项</option>
+          </select>
+        </div>
+      </div>
+      <!-- KB-03：条款级结构化（生效日期 + 适用设备类型） -->
+      <div class="form-row">
+        <div class="field">
+          <label>生效日期</label>
+          <input class="inp" id="clauseEffectiveDate" type="date">
+        </div>
+        <div class="field">
+          <label>适用设备类型</label>
+          <input class="inp" id="clauseDeviceType" type="text" placeholder="如: 曳引电梯">
+        </div>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="btn btn-ghost btn-sm" onclick="App.closeModal('clauseModal')">取消</button>
+      <button class="btn btn-p btn-sm" onclick="saveClause()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var loadedClauses = {};
+  var allClauses = {};  // 按regId存储所有条款数据
+  var LEVELS = [];
+
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function isAdmin(){ return <%= user && user.role === 'admin' ? 'true' : 'false' %>; }
+  function canReview(){ return <%= user && (user.role === 'admin' || user.role === 'auditor') ? 'true' : 'false' %>; }
+
+  var LEVEL_CLS = { '法律':'ng', '行政法规':'purple', '国家标准':'blue', '行业标准':'info', '地方标准':'gray' };
+  var REVIEW_MAP = {
+    pending:  ['mb', '待审核'],
+    approved: ['ok', '已通过'],
+    rejected: ['ng', '已驳回'],
+    draft:    ['gray', '草稿']
+  };
+
+  // KB-02：加载五层分类字典与各层级数量
+  function loadLevels(){
+    return App.api('/api/regulations/levels').then(function(d){
+      LEVELS = d.data || [];
+      var bar = document.getElementById('levelBar');
+      bar.innerHTML = LEVELS.map(function(l){
+        return '<button class="btn btn-o btn-sm" title="'+esc(l.description)+'" onclick="filterByLevel(\''+esc(l.label)+'\')">'+
+          '<span class="tag '+(LEVEL_CLS[l.label]||'gray')+'">L'+l.rank+'</span> '+esc(l.label)+' · '+l.count+'</button>';
+      }).join('') + (d.uncategorized ? '<span class="tag mb">未分类 '+d.uncategorized+'</span>' : '');
+
+      var sel = document.getElementById('kLevel');
+      sel.innerHTML = '<option value="">全部层级</option>' + LEVELS.map(function(l){
+        return '<option value="'+esc(l.label)+'">'+esc(l.label)+'</option>';
+      }).join('');
+      var regSel = document.getElementById('regLevel');
+      if(regSel) regSel.innerHTML = LEVELS.map(function(l){ return '<option value="'+esc(l.label)+'">'+esc(l.label)+'</option>'; }).join('');
+    }).catch(function(){ document.getElementById('levelBar').innerHTML='<span class="muted t-xs">分类体系加载失败</span>'; });
+  }
+
+  window.filterByLevel = function(label){
+    document.getElementById('kLevel').value = label;
+    loadRegulations();
+  };
+  window.resetKFilter = function(){
+    document.getElementById('kSearch').value='';
+    document.getElementById('kLevel').value='';
+    document.getElementById('kReview').value='';
+    loadRegulations();
+  };
+
+  function loadRegulations(){
+    var container = document.getElementById('regulationsList');
+    container.innerHTML = '<div class="center muted" style="padding:40px">加载中…</div>';
+    var q = [];
+    var s = (document.getElementById('kSearch')||{}).value;
+    var lv = (document.getElementById('kLevel')||{}).value;
+    var rv = (document.getElementById('kReview')||{}).value;
+    if(s && s.trim()) q.push('search='+encodeURIComponent(s.trim()));
+    if(lv) q.push('level='+encodeURIComponent(lv));
+    if(rv) q.push('reviewStatus='+encodeURIComponent(rv));
+    q.push('pageSize=100');
+
+    App.api('/api/regulations?'+q.join('&')).then(function(d){
+      var data = d.data || [];
+      document.getElementById('regTotal').textContent = '共 '+(d.total||data.length)+' 部法规';
+      if(data.length === 0){
+        container.innerHTML = '<div class="empty"><div class="et">暂无法规</div><div class="ed">调整筛选条件，或点击右上角“新建法规”添加</div></div>';
+        return;
+      }
+      container.innerHTML = data.map(function(reg){
+        var lvl = reg.level || '未分类';
+        var rs = reg.review_status || 'approved';
+        var rm = REVIEW_MAP[rs] || ['gray', rs];
+        var adminHtml = '';
+        var btns = [];
+        if(canReview() && rs === 'pending'){
+          btns.push('<button class="btn btn-p btn-xs" onclick="event.stopPropagation();reviewReg('+reg.id+',\'approve\')">审核通过</button>');
+          btns.push('<button class="btn btn-o btn-xs" style="color:var(--danger)" onclick="event.stopPropagation();reviewReg('+reg.id+',\'reject\')">驳回</button>');
+        }
+        if(isAdmin()){
+          btns.push('<button class="btn btn-o btn-xs" onclick="event.stopPropagation();editReg('+reg.id+')">编辑</button>');
+          btns.push('<button class="btn btn-o btn-xs" onclick="event.stopPropagation();newVersion('+reg.id+')">新版本</button>');
+          btns.push('<button class="btn btn-o btn-xs" onclick="event.stopPropagation();showVersions('+reg.id+')">版本链</button>');
+          btns.push('<button class="btn btn-o btn-xs" style="color:var(--danger)" onclick="event.stopPropagation();deleteReg('+reg.id+')">删除</button>');
+        }
+        if(btns.length) adminHtml = '<span class="flex gap-s wrap" style="margin-left:8px">'+btns.join('')+'</span>';
+
+        return '<div class="acc" id="reg-'+reg.id+'">'+
+          '<div class="ah" onclick="ensureClauses('+reg.id+')">'+
+            '<span style="flex:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+              '<span class="tag '+(LEVEL_CLS[lvl]||'gray')+'">'+esc(lvl)+'</span>'+
+              '<span class="fw-7">'+esc(reg.name||'')+'</span>'+
+              '<span class="mono t-xs muted">'+esc(reg.code||'')+'</span>'+
+              '<span class="tag gray">v'+esc(reg.version||'1.0')+'</span>'+
+              '<span class="tag '+rm[0]+'">'+rm[1]+'</span>'+
+              (reg.superseded_by_id?'<span class="tag ng">已被新版替代</span>':'')+
+              (reg.clause_count!=null?'<span class="muted t-xs">'+reg.clause_count+' 条条款</span>':'')+
+              (reg.effective_date?'<span class="muted t-xs">生效 '+esc(App.fmtDate(reg.effective_date))+'</span>':'')+
+            '</span>'+
+            adminHtml +
+            '<svg class="ar" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;margin-left:8px"><path d="M6 9l6 6 6-6"/></svg>'+
+          '</div>'+
+          '<div class="ab" id="clauses-'+reg.id+'"><div class="center muted t-xs" style="padding:20px">加载条款中…</div></div>'+
+        '</div>';
+      }).join('');
+    }).catch(function(){
+      container.innerHTML = '<div class="center" style="padding:40px;color:var(--danger)">加载失败</div>';
+    });
+  }
+  window.loadRegulations = loadRegulations;
+
+  // KB-04：法规人工审核
+  window.reviewReg = function(id, decision){
+    var note = '';
+    if(decision === 'reject'){
+      note = prompt('请输入驳回理由（必填）：') || '';
+      if(!note.trim()){ alert('驳回时必须填写审核意见'); return; }
+    }else{
+      if(!confirm('确认审核通过？通过后法规将正式生效并参与合规判别。')) return;
+      note = prompt('审核备注（可选）：') || '';
+    }
+    App.api('/api/regulations/'+id+'/review', {method:'POST', body:JSON.stringify({decision:decision, note:note})})
+      .then(function(d){
+        if(d.success===false || d.error){ alert(d.error||d.message||'审核失败'); return; }
+        App.toast(d.message||'审核已提交','ok');
+        loadLevels(); loadRegulations();
+      }).catch(function(){ alert('审核失败'); });
+  };
+
+  // KB-05：创建新版本
+  window.newVersion = function(id){
+    var note = prompt('本次修订说明（可选）：') || '';
+    if(!confirm('将基于当前法规创建新版本（条款一并复制），旧版本自动标记为被替代。继续？')) return;
+    App.api('/api/regulations/'+id+'/new-version', {method:'POST', body:JSON.stringify({revision_note:note})})
+      .then(function(d){
+        if(d.success===false || d.error){ alert(d.error||d.message||'创建失败'); return; }
+        App.toast('新版本 '+d.code+' (v'+d.version+') 已创建，待审核','ok');
+        loadLevels(); loadRegulations();
+      }).catch(function(){ alert('创建新版本失败'); });
+  };
+
+  // KB-05：版本链查看
+  window.showVersions = function(id){
+    App.api('/api/regulations/'+id+'/versions').then(function(d){
+      var list = d.data || [];
+      var modal = document.createElement('div');
+      modal.className = 'overlay show';
+      modal.innerHTML = '<div class="modal" style="max-width:720px"><div class="modal-h"><span class="mt">法规版本链</span>'+
+        '<button class="x" onclick="this.closest(\'.overlay\').remove()">✕</button></div><div class="modal-b">'+
+        (list.length? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>版本</th><th>编号</th><th>生效日期</th><th>审核</th><th>修订说明</th></tr></thead><tbody>'+
+          list.map(function(v){
+            var rm = REVIEW_MAP[v.review_status] || ['gray', v.review_status];
+            return '<tr'+(v.is_current?' style="background:var(--primary-l)"':'')+'>'+
+              '<td><b>v'+esc(v.version)+'</b>'+(v.is_current?' <span class="tag blue">当前</span>':'')+'</td>'+
+              '<td class="mono t-xs">'+esc(v.code)+'</td>'+
+              '<td class="t-xs">'+esc(App.fmtDate(v.effective_date,'--'))+'</td>'+
+              '<td><span class="tag '+rm[0]+'">'+rm[1]+'</span></td>'+
+              '<td class="t-xs soft">'+esc(v.revision_note||'--')+'</td></tr>';
+          }).join('')+'</tbody></table></div>' : '<div class="muted">暂无版本记录</div>')+
+        '</div></div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+    }).catch(function(){ alert('版本链加载失败'); });
+  };
+
+  // 手风琴由 app.js 统一切换；此处仅负责首次展开时懒加载条款
+  window.ensureClauses = function(id){
+    var ah = document.querySelector('#reg-'+id+' .ah');
+    if(ah && !ah.classList.contains('open')){   // 即将展开
+      if(!loadedClauses[id]){ loadClauses(id); }
+    }
+  };
+
+  function loadClauses(regId){
+    App.api('/api/regulations/'+regId+'/clauses').then(function(d){
+      loadedClauses[regId] = true;
+      var container = document.getElementById('clauses-'+regId);
+      var clauses = d.clauses || [];
+      var reg = d.regulation || {};
+      allClauses[regId] = clauses;  // 缓存条款数据供编辑使用
+      var adminAddBtn = isAdmin() ? '<button class="btn btn-o btn-xs mb-s" onclick="showClauseModal('+regId+')">+ 添加条款</button>' : '';
+      if(clauses.length === 0){
+        container.innerHTML = adminAddBtn + '<div class="muted t-xs" style="padding:12px 0">暂无条款，点击"添加条款"录入</div>';
+        return;
+      }
+      var clausesHtml = clauses.map(function(c){
+        var catCls = c.category==='mandatory'?'ng':c.category==='recommended'?'info':'mb';
+        var catTxt = c.category==='mandatory'?'强制':c.category==='recommended'?'推荐':'一般';
+        var sevTxt = c.severity==='mandatory'?'强制项':c.severity==='recommended'?'推荐项':c.severity==='optional'?'可选项':'';
+        var adminBtns = isAdmin() ? '<span class="flex gap-s" style="margin-left:auto">'+
+          '<button class="btn btn-o btn-xs" onclick="editClause('+c.id+')">编辑</button>'+
+          '<button class="btn btn-o btn-xs" style="color:var(--danger)" onclick="deleteClause('+c.id+','+regId+')">删除</button>'+
+          '</span>' : '';
+        // KB-03：条款级结构化展示（生效日期与适用设备类型）
+        var metaBits = [];
+        if(c.effective_date) metaBits.push('生效 '+esc(App.fmtDate(c.effective_date)));
+        if(c.device_type) metaBits.push('适用 '+esc(c.device_type));
+        return '<div style="padding:12px 0;border-bottom:1px solid var(--border-2)">'+
+          '<div class="flex center gap-s wrap mb-s">'+
+            '<span class="mono t-xs muted">第 '+esc(c.clause_number||'')+' 条</span>'+
+            '<span class="fw-6">'+esc(c.title||'')+'</span>'+
+            '<span class="tag '+catCls+'">'+catTxt+'</span>'+
+            (sevTxt?'<span class="tag gray">'+sevTxt+'</span>':'')+
+            (metaBits.length?'<span class="muted t-xs">'+metaBits.join(' · ')+'</span>':'')+
+            adminBtns+
+          '</div>'+
+          '<div class="t-sm soft" style="line-height:1.7">'+esc(c.content||'').replace(/\n/g,'<br>')+'</div>'+
+        '</div>';
+      }).join('');
+      container.innerHTML = adminAddBtn + '<div class="muted t-xs mb-s">'+esc(reg.code||'')+' · '+clauses.length+' 条条款</div>' + clausesHtml;
+    }).catch(function(){
+      document.getElementById('clauses-'+regId).innerHTML = '<div class="t-xs" style="color:var(--danger);padding:12px 0">条款加载失败</div>';
+    });
+  }
+
+  // ========== 法规 CRUD ==========
+
+  window.showRegModal = function(){
+    document.getElementById('regModalTitle').textContent = '新建法规';
+    document.getElementById('regEditId').value = '';
+    document.getElementById('regCode').value = '';
+    document.getElementById('regName').value = '';
+    document.getElementById('regSource').value = '';
+    document.getElementById('regEffectiveDate').value = '';
+    document.getElementById('regExpireDate').value = '';
+    document.getElementById('regDeviceType').value = '';
+    document.getElementById('regVersion').value = '1.0';
+    document.getElementById('regRevisionNote').value = '';
+    document.getElementById('regStatus').value = 'draft';
+    var hint = document.getElementById('regReviewHint');
+    hint.style.display = 'block';
+    hint.textContent = '新建法规默认进入「待审核」，需管理员/审核员确认有效性后才会生效并参与合规判别。';
+    App.openModal('regModal');
+  };
+
+  window.editReg = function(id){
+    App.api('/api/regulations/'+id).then(function(d){
+      if(d.error){ alert(d.error); return; }
+      document.getElementById('regModalTitle').textContent = '编辑法规';
+      document.getElementById('regEditId').value = d.id;
+      document.getElementById('regCode').value = d.code || '';
+      document.getElementById('regName').value = d.name || '';
+      document.getElementById('regSource').value = d.source || '';
+      // BUG-04：纯日期字段直接取前 10 位，不做任何时区转换
+      document.getElementById('regEffectiveDate').value = App.normDate(d.effective_date);
+      document.getElementById('regExpireDate').value = App.normDate(d.expire_date);
+      document.getElementById('regDeviceType').value = d.device_type || '';
+      document.getElementById('regVersion').value = d.version || '1.0';
+      document.getElementById('regRevisionNote').value = d.revision_note || '';
+      document.getElementById('regStatus').value = d.status || 'draft';
+      var lvlSel = document.getElementById('regLevel');
+      if(lvlSel && d.level) lvlSel.value = d.level;
+      var hint = document.getElementById('regReviewHint');
+      var rs = d.review_status || 'approved';
+      hint.style.display = 'block';
+      hint.textContent = '当前审核状态：' + ((REVIEW_MAP[rs]||['','未知'])[1]) +
+        (d.reviewed_by ? '（' + d.reviewed_by + ' 于 ' + App.fmtDT(d.reviewed_at_iso||d.reviewed_at) + '）' : '') +
+        (d.review_note ? ' · 意见：' + d.review_note : '');
+      App.openModal('regModal');
+    }).catch(function(){ alert('法规详情加载失败'); });
+  };
+
+  window.deleteReg = function(id){
+    if(!confirm('确定要删除该法规吗？关联的条款也会一并删除！')) return;
+    App.api('/api/regulations/'+id, {method:'DELETE'}).then(function(d){
+      alert(d.message || '删除成功');
+      loadRegulations();
+    }).catch(function(){ alert('删除失败'); });
+  };
+
+  window.saveRegulation = function(){
+    var id = document.getElementById('regEditId').value;
+    var code = document.getElementById('regCode').value.trim();
+    var name = document.getElementById('regName').value.trim();
+    var source = document.getElementById('regSource').value.trim();
+    var effective_date = document.getElementById('regEffectiveDate').value;
+    var expire_date = document.getElementById('regExpireDate').value;
+    var status = document.getElementById('regStatus').value;
+    var level = (document.getElementById('regLevel')||{}).value || '';
+    var device_type = document.getElementById('regDeviceType').value.trim();
+    var version = document.getElementById('regVersion').value.trim();
+    var revision_note = document.getElementById('regRevisionNote').value.trim();
+    if(!code || !name){ alert('编码和名称不能为空'); return; }
+    var payload = {
+      code:code, name:name, source:source||null,
+      effective_date:effective_date||null, expire_date:expire_date||null,
+      status:status, level:level||null, device_type:device_type||null,
+      version:version||null, revision_note:revision_note||null
+    };
+    var method = id ? 'PUT' : 'POST';
+    var url = id ? '/api/regulations/'+id : '/api/regulations';
+    App.api(url, {method:method, body:JSON.stringify(payload)}).then(function(d){
+      if(d.error){ alert(d.error); return; }
+      alert(d.message || '保存成功');
+      App.closeModal('regModal');
+      loadLevels();
+      loadRegulations();
+    }).catch(function(){ alert('保存失败'); });
+  };
+
+  window.closeRegModal = function(){ App.closeModal('regModal'); };
+
+  // ========== 条款 CRUD ==========
+
+  window.showClauseModal = function(regId, clauseId){
+    document.getElementById('clauseEditId').value = '';
+    document.getElementById('clauseRegId').value = regId || '';
+    document.getElementById('clauseModalTitle').textContent = '添加条款';
+    document.getElementById('clauseNumber').value = '';
+    document.getElementById('clauseTitle').value = '';
+    document.getElementById('clauseContent').value = '';
+    document.getElementById('clauseCategory').value = 'mandatory';
+    document.getElementById('clauseSeverity').value = 'mandatory';
+    document.getElementById('clauseEffectiveDate').value = '';
+    document.getElementById('clauseDeviceType').value = '';
+    App.openModal('clauseModal');
+  };
+
+  window.editClause = function(clauseId){
+    // 从缓存中查找条款数据
+    var clause = null;
+    for(var rid in allClauses){
+      var list = allClauses[rid];
+      for(var i=0;i<list.length;i++){
+        if(list[i].id == clauseId){ clause = list[i]; break; }
+      }
+      if(clause) break;
+    }
+    if(!clause){ alert('条款数据未找到，请刷新后重试'); return; }
+    document.getElementById('clauseEditId').value = clause.id;
+    document.getElementById('clauseRegId').value = clause.regulation_id;
+    document.getElementById('clauseModalTitle').textContent = '编辑条款';
+    document.getElementById('clauseNumber').value = clause.clause_number || '';
+    document.getElementById('clauseTitle').value = clause.title || '';
+    document.getElementById('clauseContent').value = clause.content || '';
+    document.getElementById('clauseCategory').value = clause.category || 'mandatory';
+    document.getElementById('clauseSeverity').value = clause.severity || 'mandatory';
+    document.getElementById('clauseEffectiveDate').value = App.normDate(clause.effective_date);
+    document.getElementById('clauseDeviceType').value = clause.device_type || '';
+    App.openModal('clauseModal');
+  };
+
+  window.deleteClause = function(clauseId, regId){
+    if(!confirm('确定要删除该条款吗？')) return;
+    App.api('/api/clauses/'+clauseId, {method:'DELETE'}).then(function(d){
+      alert(d.message || '删除成功');
+      loadedClauses[regId] = false; // 强制重新加载
+      loadClauses(regId);
+    }).catch(function(){ alert('删除失败'); });
+  };
+
+  window.saveClause = function(){
+    var clauseId = document.getElementById('clauseEditId').value;
+    var regId = document.getElementById('clauseRegId').value;
+    var clause_number = document.getElementById('clauseNumber').value.trim();
+    var title = document.getElementById('clauseTitle').value.trim();
+    var content = document.getElementById('clauseContent').value.trim();
+    var category = document.getElementById('clauseCategory').value;
+    var severity = document.getElementById('clauseSeverity').value;
+    var effective_date = document.getElementById('clauseEffectiveDate').value;
+    var device_type = document.getElementById('clauseDeviceType').value.trim();
+    if(!clause_number || !content){ alert('条款编号和内容不能为空'); return; }
+    var payload = {
+      clause_number:clause_number, title:title||null, content:content, category:category,
+      severity:severity, effective_date:effective_date||null, device_type:device_type||null
+    };
+    var method, url;
+    if(clauseId){
+      method = 'PUT';
+      url = '/api/clauses/'+clauseId;
+    } else {
+      method = 'POST';
+      url = '/api/regulations/'+regId+'/clauses';
+    }
+    App.api(url, {method:method, body:JSON.stringify(payload)}).then(function(d){
+      if(d.error){ alert(d.error); return; }
+      alert(d.message || '保存成功');
+      App.closeModal('clauseModal');
+      loadedClauses[regId] = false;
+      loadClauses(regId);
+      // 刷新法规列表
+      loadRegulations();
+    }).catch(function(){ alert('保存失败'); });
+  };
+
+  window.closeClauseModal = function(){ App.closeModal('clauseModal'); };
+
+  loadLevels().then(loadRegulations);
+})();
+</script>
+<%- include('partials/foot') %>

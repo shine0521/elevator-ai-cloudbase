@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
+<title>判别历史 · 特种设备AI</title>
+<style>
+:root{
+  --p:#2f6bff;
+  --p-d:#1d4ed8;
+  --s:#16a34a;
+  --d:#dc2626;
+  --w:#d97706;
+  --bg:#f1f5f9;
+  --card:#fff;
+  --navy:#0a1628;
+  --navy-2:#1e3a5f;
+  --tx:#1e2a3a;
+  --t2:#5b6b81;
+  --t3:#93a1b5;
+  --t4:#c0c8d4;
+  --bd:#e5e9f0;
+  --bdr:12px;
+  --sh:0 1px 3px rgba(16,28,56,.05),0 6px 18px rgba(16,28,56,.06);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--tx);margin:0 auto;min-height:100vh;max-width:480px}
+.ic{width:18px;height:18px;stroke:currentColor;flex-shrink:0;vertical-align:middle}
+.m-shell{min-height:100vh;padding-bottom:56px}
+.m-topbar{background:linear-gradient(135deg,#0a1628 0%,#1e3a5f 100%);color:#fff;padding:15px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;box-shadow:0 2px 10px rgba(10,22,40,.18)}
+.m-topbar .tl{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.m-topbar .tl .ic{width:19px;height:19px;stroke:#fff}
+.m-content{padding:12px}
+.m-card{background:var(--card);border:1px solid var(--bd);border-radius:var(--bdr);padding:14px;margin-bottom:12px;box-shadow:var(--sh)}
+.m-card-h{font-size:13px;font-weight:700;margin-bottom:11px;display:flex;align-items:center;justify-content:space-between;color:var(--tx)}
+.m-card-h .ic{width:16px;height:16px;stroke:var(--p);margin-right:6px;vertical-align:-3px}
+
+/* ── 搜索栏 ── */
+.m-search{display:flex;gap:8px;margin-bottom:12px}
+.m-search .si{flex:1;height:38px;border:1px solid var(--bd);border-radius:10px;padding:0 12px;font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s;background:#fff}
+.m-search .si:focus{border-color:var(--p);box-shadow:0 0 0 3px rgba(47,107,255,.13)}
+.m-search .sel{height:38px;border:1px solid var(--bd);border-radius:10px;padding:0 8px;font-size:12px;outline:none;background:#fff;flex-shrink:0}
+.m-search .sb{height:38px;padding:0 14px;border:none;border-radius:10px;background:var(--p);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;box-shadow:0 4px 12px rgba(47,107,255,.22)}
+.m-search .sb:active{background:var(--p-d)}
+
+/* ── 记录列表 ── */
+.m-row{padding:11px 0;border-bottom:1px solid #f0f2f6;cursor:pointer;transition:background .1s;display:flex;align-items:center;gap:8px}
+.m-row:last-child{border-bottom:none}
+.m-row:active{background:var(--bg)}
+.m-row .rid{color:var(--t3);font-size:10px;flex-shrink:0;width:28px;text-align:center;font-weight:500}
+.m-row .rbd{flex:1;min-width:0}
+.m-row .rnm{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m-row .rtm{font-size:10px;color:var(--t3);margin-top:1px}
+.m-row .rtg{flex-shrink:0;margin-left:auto}
+
+.m-tag{display:inline-flex;align-items:center;padding:2px 7px;border-radius:6px;font-size:10px;font-weight:600;line-height:1.6;white-space:nowrap}
+.m-tag-ok{background:#e7f7ee;color:var(--s)}
+.m-tag-ng{background:#fdecee;color:var(--d)}
+.m-tag-mb{background:#fdf3e0;color:var(--w)}
+
+/* ── 分页 ── */
+.m-pages{display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 0;font-size:12px}
+.m-pages .pgb{height:34px;padding:0 16px;border:1px solid var(--bd);border-radius:10px;background:#fff;font-size:12px;cursor:pointer;color:var(--tx)}
+.m-pages .pgb:disabled{opacity:.4;cursor:not-allowed}
+.m-pages .pgb:active:not(:disabled){background:var(--bg)}
+.m-pages .pgi{color:var(--t2)}
+
+/* ── 弹窗 ── */
+.m-overlay{position:fixed;inset:0;background:rgba(10,22,40,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(2px)}
+.m-modal{background:#fff;border-radius:16px;max-width:380px;width:100%;max-height:82vh;overflow:hidden;display:flex;flex-direction:column;animation:mFadeIn .18s ease;box-shadow:0 20px 50px rgba(10,22,40,.3)}
+@keyframes mFadeIn{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}
+.m-modal-h{padding:14px 16px 11px;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #f0f2f6;flex-shrink:0}
+.m-modal-close{font-size:20px;cursor:pointer;color:var(--t3);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+.m-modal-close:active{background:var(--bg)}
+.m-modal-b{padding:12px 16px 16px;overflow-y:auto;flex:1}
+.m-modal-b .md-sec{margin-bottom:11px}
+.m-modal-b .md-sec:last-child{margin-bottom:0}
+.m-modal-b .md-hd{font-size:11px;color:var(--t3);font-weight:600;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+.m-modal-b .md-tbl{width:100%;border-collapse:collapse;font-size:11px}
+.m-modal-b .md-tbl td{padding:5px 0;border-bottom:1px solid #f0f2f6;vertical-align:top}
+.m-modal-b .md-tbl td:first-child{color:var(--t3);width:50px;padding-right:8px;white-space:nowrap}
+.m-modal-b .md-tbl td:last-child{word-break:break-all}
+.m-modal-b .md-rule{padding:7px 0;border-bottom:1px solid #f0f2f6}
+.m-modal-b .md-rule:last-child{border-bottom:none}
+.m-modal-b .md-rule .rn{font-size:12px;font-weight:500;display:flex;align-items:center;gap:4px}
+.m-modal-b .md-rule .rd{font-size:10px;color:var(--t2);margin-top:2px}
+
+.m-loading{text-align:center;padding:30px;color:var(--t3);font-size:12px}
+.m-empty{text-align:center;padding:30px;color:var(--t3);font-size:12px}
+.m-empty .ico{font-size:32px;display:block;margin-bottom:6px}
+
+/* ── TabBar ── */
+.m-tabbar{position:fixed;bottom:0;left:0;right:0;max-width:480px;margin:0 auto;height:50px;background:#fff;display:flex;box-shadow:0 -1px 4px rgba(0,0,0,.06);z-index:100;border-top:1px solid #f0f0f0}
+.m-tabbar a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;color:var(--t3);font-size:9px;transition:color .15s}
+.m-tabbar a.on{color:var(--p)}
+.m-tabbar a span{font-size:20px;margin-bottom:1px}
+</style>
+<!-- BUG-04：复用统一的时区安全格式化助手（App.fmtDT 按 UTC 解析后本地化） -->
+<script src="/js/app.js"></script>
+</head>
+<body class="iphone-host">
+<%- include('partials/iphone_frame_start') %>
+
+<div class="m-shell">
+
+<div class="m-topbar">
+<div class="tl"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>判别历史</div>
+</div>
+
+<div class="m-content">
+
+<!-- 搜索栏 -->
+<div class="m-search">
+<input class="si" id="searchInput" placeholder="搜索模板名称..." onkeydown="if(event.key==='Enter')loadPage(1)">
+<select class="sel" id="resultFilter" onchange="loadPage(1)">
+<option value="">全部结果</option>
+<option value="合规">✅ 合规</option>
+<option value="不合规">❌ 不合规</option>
+<option value="待人工">⚠️ 待人工</option>
+</select>
+<button class="sb" onclick="loadPage(1)">搜索</button>
+</div>
+
+<!-- 列表 -->
+<div class="m-card">
+<div class="m-card-h"><span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>判别记录</span><span id="totalCount" style="font-size:11px;font-weight:500;color:var(--t3)"></span></div>
+<div id="listContainer"><div class="m-loading">加载中...</div></div>
+<div class="m-pages" id="pageNav" style="display:none">
+<button class="pgb" id="prevBtn" onclick="loadPage(currentPage-1)">‹ 上一页</button>
+<span class="pgi" id="pageInfo"></span>
+<button class="pgb" id="nextBtn" onclick="loadPage(currentPage+1)">下一页 ›</button>
+</div>
+</div>
+
+</div>
+</div>
+
+
+<script>
+var currentPage=1;
+
+function loadPage(page){
+  var search=document.getElementById('searchInput').value;
+  var result=document.getElementById('resultFilter').value;
+  var container=document.getElementById('listContainer');
+  var pageNav=document.getElementById('pageNav');
+
+  container.innerHTML='<div class="m-loading">加载中...</div>';
+
+  var q='?page='+page;
+  if(search)q+='&search='+encodeURIComponent(search);
+  if(result)q+='&result='+encodeURIComponent(result);
+
+  fetch('/api/discrimination-records'+q,{credentials:'include'})
+    .then(function(r){if(!r.ok)throw new Error('请求失败');return r.json()})
+    .then(function(d){
+      currentPage=d.page||1;
+      document.getElementById('totalCount').textContent='共 '+(d.total||0)+' 条';
+
+      if(!d.data||d.data.length===0){
+        container.innerHTML='<div class="m-empty"><span class="ico">📭</span>暂无记录</div>';
+        pageNav.style.display='none';
+        return;
+      }
+
+      container.innerHTML=d.data.map(function(r){
+        var cls=r.final_result==='合规'?'ok':r.final_result==='不合规'?'ng':'mb';
+        var name=r.template_name||r.templateName||'-';
+        if(name.length>12)name=name.substring(0,12)+'…';
+        // BUG-04：后端存 UTC 且无时区标记，直接 substring 会把 UTC 当本地时间展示（GMT+8 差 8 小时）
+        var time=App.fmtDT(r.created_at_iso||r.created_at||r.createdAt, '');
+        return '<div class="m-row" onclick="showDetail('+(r.id||0)+')">'+
+          '<div class="rid">#'+(r.id||'')+'</div>'+
+          '<div class="rbd">'+
+            '<div class="rnm">'+name+'</div>'+
+            (time?'<div class="rtm">'+time+'</div>':'')+
+          '</div>'+
+          '<div class="rtg"><span class="m-tag m-tag-'+cls+'">'+(r.final_result||'-')+'</span></div>'+
+        '</div>';
+      }).join('');
+
+      // 分页
+      var totalPages=d.totalPages||1;
+      if(totalPages>1){
+        pageNav.style.display='flex';
+        document.getElementById('pageInfo').textContent=currentPage+'/'+totalPages;
+        document.getElementById('prevBtn').disabled=currentPage<=1;
+        document.getElementById('nextBtn').disabled=currentPage>=totalPages;
+      }else{
+        pageNav.style.display='none';
+      }
+    })
+    .catch(function(e){
+      container.innerHTML='<div class="m-loading" style="color:var(--d)">加载失败：'+e.message+'</div>';
+      pageNav.style.display='none';
+    });
+}
+
+// ── 详情弹窗 ──
+function showDetail(id){
+  var overlay=document.createElement('div');
+  overlay.className='m-overlay';
+  overlay.onclick=function(e){if(e.target===overlay)closeModal(overlay);};
+
+  var modal=document.createElement('div');
+  modal.className='m-modal';
+  modal.innerHTML=
+    '<div class="m-modal-h">'+
+      '<span>📄 记录详情 #'+id+'</span>'+
+      '<div class="m-modal-close" onclick="closeModal(this.closest(\'.m-overlay\'))">✕</div>'+
+    '</div>'+
+    '<div class="m-modal-b"><div class="m-loading">加载中...</div></div>';
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  fetch('/api/discrimination-records/'+id,{credentials:'include'})
+    .then(function(r){if(!r.ok)throw new Error('请求失败');return r.json()})
+    .then(function(d){
+      var record=d.record||d;
+      var audit=d.auditTask;
+
+      var html='';
+
+      // 基本信息
+      html+='<div class="md-sec">'+
+        '<div class="md-hd">📋 基本信息</div>'+
+        '<table class="md-tbl">'+
+          '<tr><td>ID</td><td>'+(record.id||'-')+'</td></tr>'+
+          '<tr><td>模板</td><td>'+(record.template_name||record.templateName||'-')+'</td></tr>'+
+          (record.final_result?'<tr><td>结果</td><td><span class="m-tag '+(record.final_result==='合规'?'m-tag-ok':record.final_result==='不合规'?'m-tag-ng':'m-tag-mb')+'">'+record.final_result+'</span></td></tr>':'<tr><td>结果</td><td>-</td></tr>')+
+          (record.created_at||record.createdAt?'<tr><td>时间</td><td>'+App.fmtDTS(record.created_at_iso||record.created_at||record.createdAt)+'</td></tr>':'')+
+        '</table></div>';
+
+      // 表单数据
+      var fd=record.form_data||record.formData||{};
+      if(Object.keys(fd).length>0){
+        html+='<div class="md-sec"><div class="md-hd">📝 输入字段</div><table class="md-tbl">';
+        for(var k in fd){
+          html+='<tr><td>'+k+'</td><td>'+(fd[k]||'-')+'</td></tr>';
+        }
+        html+='</table></div>';
+      }
+
+      // 规则结果
+      var rawRules=record.rule_results||record.ruleResults;
+      var rulesArr=Array.isArray(rawRules)?rawRules:[];
+      var isSummary=!Array.isArray(rawRules)&&rawRules&&typeof rawRules==='object';
+      if(rulesArr.length>0||isSummary){
+        html+='<div class="md-sec"><div class="md-hd">⚖️ 规则判定</div>';
+        if(isSummary){
+          var s=rawRules;
+          var matched=s.matched!=null?s.matched:'-';
+          var total=s.total!=null?s.total:'-';
+          var sevRaw=s.severity||'';
+          var sevZh=sevRaw==='high'?'高':sevRaw==='mid'?'中':sevRaw==='low'?'低':sevRaw==='mandatory'?'强制项':sevRaw==='recommended'?'推荐项':sevRaw==='optional'?'可选项':sevRaw||'-';
+          html+='<div class="md-rule"><div class="rn">📋 规则执行概要</div>'+
+            '<div class="rd">匹配命中：<strong>'+matched+'</strong> / '+total+'</div>'+
+            '<div class="rd">严重级别：'+sevZh+'</div>'+
+            '<div class="rd muted">（摘要型记录，完整明细访“判别”页）</div>'+
+          '</div>';
+        }else{
+          rulesArr.forEach(function(r){
+            var ico=r.status==='success'?'✅':r.status==='error'?'❌':'⚠️';
+            html+='<div class="md-rule"><div class="rn">'+ico+' '+r.name+'</div>'+
+              (r.description?'<div class="rd">'+r.description+'</div>':'')+
+              (r.result?'<div class="rd">结果：'+r.result+'</div>':'')+
+              (r.formula?'<div class="rd">公式：'+r.formula+'</div>':'')+
+              (r.clause?'<div class="rd">依据：'+r.clause+'</div>':'')+
+            '</div>';
+          });
+        }
+        html+='</div>';
+      }
+
+      // 审计信息
+      if(audit){
+        html+='<div class="md-sec"><div class="md-hd">🔍 审计</div>'+
+          '<table class="md-tbl">'+
+            '<tr><td>状态</td><td>'+(audit.status||'-')+'</td></tr>'+
+            (audit.auditor?'<tr><td>审核人</td><td>'+audit.auditor+'</td></tr>':'')+
+          '</table></div>';
+      }
+
+      modal.querySelector('.m-modal-b').innerHTML=html;
+    })
+    .catch(function(e){
+      modal.querySelector('.m-modal-b').innerHTML='<div class="m-loading" style="color:var(--d)">加载失败：'+e.message+'</div>';
+    });
+}
+
+function closeModal(overlay){
+  if(overlay&&overlay.parentNode){
+    overlay.parentNode.removeChild(overlay);
+  }
+}
+
+// 初始加载
+loadPage(1);
+</script>
+
+<%- include('partials/iphone_frame_end') %>
+</body>
+</html>

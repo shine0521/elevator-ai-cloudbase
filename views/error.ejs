@@ -1,0 +1,37 @@
+<%- include('partials/head') %>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)">
+  <div class="card" style="max-width:460px;width:100%;margin-bottom:0">
+    <div class="card-b" style="padding:40px 32px">
+      <div class="empty" style="padding:0 0 8px">
+        <div class="ei" style="opacity:1;color:var(--warning)">
+          <svg viewBox="0 0 24 24" width="60" height="60" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+        </div>
+        <div class="et" style="font-size:19px;color:var(--text)">
+          <%= typeof title !== 'undefined' && title ? title : '出错了' %>
+        </div>
+        <div class="ed" style="margin-top:8px">
+          <%= typeof message !== 'undefined' && message ? message : '发生了未知错误，请返回首页重试。' %>
+        </div>
+      </div>
+
+      <% if ((typeof statusCode !== 'undefined' && statusCode) || (typeof code !== 'undefined' && code)) { %>
+      <div class="flex center gap-s" style="justify-content:center;margin-top:6px">
+        <% if (typeof statusCode !== 'undefined' && statusCode) { %><span class="tag gray mono"><%= statusCode %></span><% } %>
+        <% if (typeof code !== 'undefined' && code) { %><span class="tag gray mono"><%= code %></span><% } %>
+      </div>
+      <% } %>
+
+      <div class="flex center gap-s" style="justify-content:center;margin-top:22px">
+        <a href="/" class="btn btn-p">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10"/></svg>
+          返回首页
+        </a>
+        <a href="javascript:history.back()" class="btn btn-o">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          返回上页
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+<%- include('partials/foot') %>

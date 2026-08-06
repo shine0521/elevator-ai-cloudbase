@@ -1,0 +1,297 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '判别历史', crumb: [{label:'判别历史'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">判别历史</div>
+        <div class="pd">查询全部合规判别记录 · 点击任意行查看规则执行明细</div>
+      </div>
+      <div class="flex gap-s">
+        <!-- BUG-08：导出功能实现 -->
+        <button class="btn btn-o" onclick="exportRecords('csv')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
+          导出 CSV
+        </button>
+        <a href="/discriminate" class="btn btn-p">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          发起合规判别
+        </a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>判别历史记录</div>
+        <span class="cs" id="totalInfo"></span>
+      </div>
+      <div class="card-b">
+        <div class="row wrap gap-s mb" style="align-items:flex-end">
+          <div class="col" style="min-width:200px">
+            <div class="field" style="margin:0">
+              <input class="inp" id="searchInput" type="text" placeholder="搜索模板名称…" oninput="debounceSearch()">
+            </div>
+          </div>
+          <div class="flex gap-s wrap" style="flex-shrink:0">
+            <select class="sel" id="resultFilter" onchange="doSearch()" style="width:140px">
+              <option value="">全部结果</option>
+              <option value="合规">合规</option>
+              <option value="不合规">不合规</option>
+              <option value="待人工">待人工</option>
+            </select>
+            <button class="btn btn-o btn-sm" onclick="doSearch()">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+              搜索
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="resetSearch()">重置</button>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="width:70px">ID</th>
+                <th>模板名称</th>
+                <th style="width:90px">结果</th>
+                <th>提交人</th>
+                <th style="width:160px">时间</th>
+                <th style="width:80px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody">
+              <tr><td colspan="6" class="center muted" style="padding:40px">加载中…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="pagination" class="pg"></div>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<div class="overlay" id="detailModal">
+  <div class="modal">
+    <div class="modal-h">
+      <span class="mt">判别详情</span>
+      <button class="x" onclick="App.closeModal('detailModal')">✕</button>
+    </div>
+    <div class="modal-b" id="modalBody"><div class="center" style="padding:40px"><div class="spinner"></div></div></div>
+    <% if (user && (user.role === 'auditor' || user.role === 'admin')) { %>
+    <div id="auditCommentArea" style="display:none;padding:0 22px 12px">
+      <textarea class="txta" id="auditComment" rows="2" placeholder="请输入审核意见…"></textarea>
+    </div>
+    <div class="modal-f" id="auditActions" style="display:none">
+      <button class="btn btn-s btn-sm" onclick="auditAction('approve')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        批准
+      </button>
+      <button class="btn btn-d btn-sm" onclick="auditAction('reject')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        驳回
+      </button>
+    </div>
+    <% } %>
+  </div>
+</div>
+
+<script>
+(function(){
+  var currentPage=1;
+  var currentRecordId=null;
+  var searchTimer=null;
+
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  // BUG-04：后端存的是 UTC 时间且无时区标记，必须走 App.fmtDT 统一按 UTC 解析再本地化，
+  // 直接 new Date('2026-08-06 16:49:56') 会被当成本地时间，GMT+8 下偏差 8 小时。
+  function fmt(v){ return App.fmtDT(v); }
+  function recTime(rec,key){ return App.fmtDT(App.recTime(rec,key)); }
+  function tagHtml(r){
+    if(r==='合规') return '<span class="tag ok">合规</span>';
+    if(r==='不合规') return '<span class="tag ng">不合规</span>';
+    if(r==='待人工') return '<span class="tag mb">待人工</span>';
+    return '<span class="tag mb">'+esc(r||'待人工')+'</span>';
+  }
+
+  function debounceSearch(){ clearTimeout(searchTimer); searchTimer=setTimeout(doSearch,400); }
+  function doSearch(){ currentPage=1; loadRecords(); }
+  function resetSearch(){
+    document.getElementById('searchInput').value='';
+    document.getElementById('resultFilter').value='';
+    currentPage=1; loadRecords();
+  }
+
+  function loadRecords(){
+    var search=encodeURIComponent(document.getElementById('searchInput').value||'');
+    var result=document.getElementById('resultFilter').value||'';
+    var tbody=document.getElementById('tableBody');
+    tbody.innerHTML='<tr><td colspan="6" class="center muted" style="padding:40px">加载中…</td></tr>';
+
+    App.api('/api/discrimination-records?page='+currentPage+'&search='+search+'&result='+result).then(function(d){
+      var data=d.data||[];
+      if(data.length===0){
+        tbody.innerHTML='<tr><td colspan="6" class="center muted" style="padding:40px">暂无记录</td></tr>';
+        document.getElementById('totalInfo').textContent='';
+        document.getElementById('pagination').innerHTML='';
+        return;
+      }
+      tbody.innerHTML=data.map(function(r){
+        return '<tr class="clickable" onclick="showDetail('+r.id+')">'+
+               '<td><span style="color:var(--primary);font-weight:600">#'+r.id+'</span></td>'+
+               '<td class="cell-main">'+esc(r.template_name||'')+'</td>'+
+               '<td>'+tagHtml(r.final_result)+'</td>'+
+               '<td class="soft t-xs">'+esc(r.user_email||'')+'</td>'+
+               '<td class="soft t-xs">'+recTime(r,'created_at')+'</td>'+
+               '<td><button class="btn btn-o btn-xs" onclick="event.stopPropagation();showDetail('+r.id+')">查看</button></td>'+
+               '</tr>';
+      }).join('');
+
+      document.getElementById('totalInfo').textContent='共 '+d.total+' 条记录 · 第 '+d.page+' / '+d.totalPages+' 页';
+      renderPagination(d.page,d.totalPages);
+    }).catch(function(){
+      tbody.innerHTML='<tr><td colspan="6" class="center" style="padding:40px;color:var(--danger)">加载失败</td></tr>';
+    });
+  }
+
+  function renderPagination(page,totalPages){
+    var pg=document.getElementById('pagination');
+    if(totalPages<=1){ pg.innerHTML=''; return; }
+    var items=[];
+    if(page>1) items.push('<a href="javascript:void(0)" data-page="'+(page-1)+'">‹ 上一页</a>');
+    var start=Math.max(1,page-2);
+    var end=Math.min(totalPages,page+2);
+    if(start>1){items.push('<a href="javascript:void(0)" data-page="1">1</a>');if(start>2)items.push('<span class="dis">…</span>');}
+    for(var i=start;i<=end;i++){
+      items.push(i===page?'<span class="on">'+i+'</span>':'<a href="javascript:void(0)" data-page="'+i+'">'+i+'</a>');
+    }
+    if(end<totalPages){if(end<totalPages-1)items.push('<span class="dis">…</span>');items.push('<a href="javascript:void(0)" data-page="'+totalPages+'">'+totalPages+'</a>');}
+    if(page<totalPages) items.push('<a href="javascript:void(0)" data-page="'+(page+1)+'">下一页 ›</a>');
+    pg.innerHTML=items.join('');
+  }
+  // 事件委托：goPage 在 IIFE 闭包内，onclick 字符串全局求值会 ReferenceError
+  document.getElementById('pagination').addEventListener('click',function(e){
+    var a=e.target.closest('a[data-page]');
+    if(a){e.preventDefault();goPage(parseInt(a.getAttribute('data-page'),10));}
+  });
+
+  function goPage(n){currentPage=n;loadRecords();window.scrollTo({top:0,behavior:'smooth'});}
+
+  function showDetail(id){
+    if(!id){console.error('showDetail: id is',id);return;}
+    currentRecordId=id;
+    var modalBody=document.getElementById('modalBody');
+    if(!modalBody){console.error('Modal elements not found');return;}
+    modalBody.innerHTML='<div class="center" style="padding:40px"><div class="spinner"></div></div>';
+    App.openModal('detailModal');
+    var auditActions=document.getElementById('auditActions');
+    var auditCommentArea=document.getElementById('auditCommentArea');
+    if(auditActions)auditActions.style.display='none';
+    if(auditCommentArea)auditCommentArea.style.display='none';
+
+    App.api('/api/discrimination-records/'+id).then(function(d){
+      var rec=d.record||{};
+      if(!rec.id) throw new Error('无record数据');
+
+      var formData=rec.form_data||{};
+      var formHtml=Object.keys(formData).length>0?'<div class="card-t mb-s mt" style="font-size:14px;font-weight:700">填写的字段</div><div class="kv mb">'+Object.keys(formData).map(function(k){
+        return '<span class="k">'+esc(k)+'</span><span class="v">'+esc(String(formData[k]||''))+'</span>';
+      }).join('')+'</div>':'';
+
+      var rawRules=rec.rule_results;
+      var rulesArr=Array.isArray(rawRules)?rawRules:[];
+      var isSummary=!Array.isArray(rawRules)&&rawRules&&typeof rawRules==='object';
+      var rulesHtml;
+      if(isSummary){
+        var s=rawRules;
+        var matched=s.matched!=null?s.matched:'-';
+        var total=s.total!=null?s.total:'-';
+        var sevRaw=s.severity||'';
+        var sevZh=sevRaw==='high'?'高':sevRaw==='mid'?'中':sevRaw==='low'?'低':sevRaw==='mandatory'?'强制项':sevRaw==='recommended'?'推荐项':sevRaw==='optional'?'可选项':sevRaw||'-';
+        rulesHtml='<div class="rule"><div class="rh"><span style="font-size:17px">📋</span><span class="rn">规则执行概要</span></div>'+
+                  '<div class="rd">匹配命中：<strong>'+esc(String(matched))+'</strong> / '+esc(String(total))+'</div>'+
+                  '<div class="rd">严重级别：'+esc(sevZh)+'</div>'+
+                  '<div class="rd muted">（摘要型记录。完整规则明细由规则引擎执行时生成，访“判别”页可实时运行）</div></div>';
+      }else{
+        rulesHtml=rulesArr.map(function(rule){
+          var icon=rule.status==='success'?'✅':rule.status==='error'?'❌':'⚠️';
+          var cls=rule.status==='success'?'pass':'fail';
+          return '<div class="rule '+cls+'"><div class="rh"><span style="font-size:17px">'+icon+'</span><span class="rn">'+esc(rule.name||'')+'</span></div>'+
+                 (rule.result?'<div class="rd">结果值：'+esc(rule.result)+'</div>':'')+
+                 (rule.description?'<div class="rd">'+esc(rule.description)+'</div>':'')+
+                 (rule.detail?'<div class="rd" style="color:var(--primary-d)">'+esc(rule.detail)+'</div>':'')+
+                 (rule.formula?'<div class="rf">'+esc(rule.formula)+'</div>':'')+
+                 (rule.clause?'<div class="rc">依据：'+esc(rule.clause)+'</div>':'')+'</div>';
+        }).join('');
+      }
+
+      var auditTask=d.auditTask||{};
+      var auditHtml='';
+      if(auditTask&&auditTask.status){
+        var atCls=auditTask.status==='approved'?'ok':auditTask.status==='rejected'?'ng':'mb';
+        auditHtml='<div class="alert info mt"><div><strong>审核状态：</strong><span class="tag '+atCls+'">'+esc(auditTask.status)+'</span>'+
+                  (auditTask.comment?'<div class="mt-s"><strong>审核意见：</strong>'+esc(auditTask.comment)+'</div>':'')+'</div></div>';
+        if(auditTask.status==='pending'){
+          if(auditActions)auditActions.style.display='flex';
+          if(auditCommentArea)auditCommentArea.style.display='block';
+        }
+      }
+
+      modalBody.innerHTML=
+        '<div class="kv mb">'+
+        '<span class="k">判别 ID</span><span class="v">#'+rec.id+'</span>'+
+        '<span class="k">结果</span><span class="v">'+tagHtml(rec.final_result)+'</span>'+
+        '<span class="k">模板</span><span class="v">'+esc(rec.template_name||'')+'</span>'+
+        '<span class="k">提交人</span><span class="v">'+esc(rec.user_email||'')+'</span>'+
+        '<span class="k">时间</span><span class="v">'+recTime(rec,'created_at')+'</span></div>'+
+        (rec.conclusion?'<div class="alert info">'+esc(rec.conclusion)+'</div>':'')+
+        formHtml+
+        '<div class="card-t mb-s mt" style="font-size:14px;font-weight:700">规则执行明细</div>'+
+        (rulesHtml||'<div class="muted">无规则明细</div>')+
+        auditHtml;
+    }).catch(function(err){
+      if(modalBody) modalBody.innerHTML='<div class="alert danger">加载失败：'+esc(err.message||'未知错误')+'</div>';
+      console.error('详情加载错误:', err);
+    });
+  }
+  window.showDetail=showDetail;
+
+  window.closeModal=function(){
+    App.closeModal('detailModal');
+    currentRecordId=null;
+  };
+
+  window.auditAction=function(action){
+    if(!currentRecordId){alert('请先选择一条记录');return;}
+    var comment=document.getElementById('auditComment');
+    comment=comment?comment.value:'';
+    if(action==='reject'&&!comment.trim()){alert('驳回时必须填写审核意见');return;}
+    App.api('/api/audit-tasks/'+currentRecordId+'/action',{
+      method:'POST',
+      body:JSON.stringify({action:action,comment:comment})
+    }).then(function(d){
+      alert(d.message||'操作成功');
+      closeModal();
+      loadRecords();
+    }).catch(function(){alert('操作失败，请重试');});
+  };
+
+  // BUG-08：导出当前筛选条件下的判别记录
+  window.exportRecords=function(format){
+    var result=document.getElementById('resultFilter').value||'';
+    var url='/api/discrimination-records/export?format='+encodeURIComponent(format||'csv')+(result?'&result='+encodeURIComponent(result):'');
+    window.location.href=url;
+  };
+
+  window.goPage=goPage;
+  window.debounceSearch=debounceSearch;
+  window.doSearch=doSearch;
+  window.resetSearch=resetSearch;
+
+  loadRecords();
+})();
+</script>
+<%- include('partials/foot') %>

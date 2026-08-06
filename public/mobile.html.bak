@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=320,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>电梯安全AI - 移动版</title>
+<style>
+:root{--p:#409eff;--s:#67c23a;--d:#f56c6c;--w:#e6a23c;--bg:#f5f6f8;--card:#fff;--tx:#303133;--t2:#606266;--t3:#909399;--bd:#e4e7ed}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font:12px/1.5 -apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--tx);width:320px;min-height:480px;margin:0 auto;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+
+/* Login */
+.login-pg{width:320px;height:480px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea,#764ba2);padding:0 28px}
+.login-pg .ico{font-size:42px;margin-bottom:6px}
+.login-pg h1{font-size:18px;color:#fff;margin-bottom:2px}
+.login-pg .sub{font-size:11px;color:rgba(255,255,255,.65);margin-bottom:24px}
+.login-pg input{width:100%;height:38px;border:none;border-radius:6px;padding:0 12px;font-size:13px;margin-bottom:10px;outline:none}
+.login-pg .btn{width:100%;height:38px;background:#fff;color:var(--p);border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer}
+.login-pg .btn:disabled{opacity:.5}
+.login-pg .err{color:#fff;text-align:center;font-size:11px;margin-top:6px}
+.login-pg .tip{color:rgba(255,255,255,.5);text-align:center;font-size:10px;margin-top:12px}
+
+/* Top bar */
+.tbar{width:320px;height:42px;background:var(--card);display:flex;align-items:center;justify-content:space-between;padding:0 12px;position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:100;box-shadow:0 1px 3px rgba(0,0,0,.05);font-size:14px;font-weight:700}
+
+/* Content */
+.ct{padding:50px 10px 76px 10px}
+
+/* Tab bar */
+.tbb{width:320px;height:68px;background:var(--card);display:flex;align-items:center;position:fixed;bottom:0;left:50%;transform:translateX(-50%);z-index:100;box-shadow:0 -1px 3px rgba(0,0,0,.05)}
+.tbb .t{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:10px;color:var(--t3);gap:2px}
+.tbb .t .ti{font-size:18px}
+.tbb .t.on{color:var(--p);font-weight:600}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.stat{background:var(--card);border-radius:6px;padding:10px;text-align:center}
+.stat .sv{font-size:22px;font-weight:800;line-height:1}
+.stat .sl{font-size:10px;color:var(--t3);margin-top:2px}
+
+/* Card */
+.card{background:var(--card);border-radius:6px;padding:10px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.card .ctitle{font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:4px}
+
+/* Inputs */
+.m-inp{width:100%;height:32px;border:1px solid var(--bd);border-radius:4px;padding:0 10px;font-size:12px;outline:none;background:var(--card)}
+.m-inp:focus{border-color:var(--p)}
+.m-txa{width:100%;border:1px solid var(--bd);border-radius:4px;padding:8px 10px;font-size:12px;outline:none;resize:none;min-height:60px;font-family:inherit;line-height:1.5}
+.m-txa:focus{border-color:var(--p)}
+.m-btn{width:100%;height:32px;border:none;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px}
+.m-btn:active{opacity:.85}
+.m-btn:disabled{opacity:.5}
+.m-btn-p{background:var(--p);color:#fff}
+.m-btn-s{background:var(--s);color:#fff}
+.m-btn-d{background:var(--d);color:#fff}
+.m-btn-o{background:var(--card);color:var(--t2);border:1px solid var(--bd)}
+.m-btn+.m-btn{margin-top:5px}
+
+/* Tags */
+.tag{display:inline-block;padding:0 6px;border-radius:3px;font-size:10px;font-weight:600;line-height:1.7}
+.tag-ok{background:#f0f9eb;color:var(--s)}
+.tag-ng{background:#fef0f0;color:var(--d)}
+.tag-mb{background:#fdf6ec;color:var(--w)}
+.tag-info{background:#ecf5ff;color:var(--p)}
+
+/* Steps */
+.m-steps{display:flex;margin-bottom:8px;background:var(--card);border-radius:6px;padding:10px 8px}
+.m-step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}
+.m-step::after{content:'';position:absolute;top:11px;left:calc(50% + 11px);width:calc(100% - 22px);height:1px;background:var(--bd)}
+.m-step:last-child::after{display:none}
+.m-step .dot{width:22px;height:22px;border-radius:50%;background:var(--bd);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;z-index:1;transition:.3s}
+.m-step.a .dot{background:var(--p);box-shadow:0 0 0 2px rgba(64,158,255,.2)}
+.m-step.d .dot{background:var(--s)}
+.m-step.d::after{background:var(--s)}
+.m-step .lbl{font-size:9px;color:var(--t3);margin-top:3px}
+.m-step.a .lbl,.m-step.d .lbl{font-weight:600}
+.m-step.a .lbl{color:var(--p)}
+.m-step.d .lbl{color:var(--s)}
+
+/* Rules */
+.rr{display:flex;padding:8px;border-radius:4px;margin-bottom:4px;border:1px solid var(--bd);font-size:10px}
+.rr.ok{background:#f0f9eb;border-color:#c2e7b0}
+.rr.ng{background:#fef0f0;border-color:#fbc4c4}
+.rr.mb{background:#fdf6ec;border-color:#faecd8}
+.rr .ri{font-size:14px;margin-right:6px;flex-shrink:0}
+.rr .rc{flex:1}
+.rr .rn{font-weight:600}
+.rr .rd{color:var(--t2)}
+.rr .rt{flex-shrink:0;margin-left:8px}
+
+/* Result */
+.res-wrap{text-align:center;padding:16px 10px}
+.res-wrap .ri{font-size:40px;margin-bottom:6px}
+.res-wrap .rtl{font-size:16px;font-weight:700;margin-bottom:4px}
+.res-wrap .rdc{font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:10px}
+
+/* List row */
+.lr{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f2f2f2;cursor:pointer;font-size:11px}
+.lr:last-child{border-bottom:none}
+.lr .ll{flex:1;min-width:0;margin-right:8px}
+.lr .ll .lt{font-weight:600;margin-bottom:1px}
+.lr .ll .ls{color:var(--t3);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Accordion */
+.ac{border:1px solid var(--bd);border-radius:4px;margin-bottom:4px;overflow:hidden}
+.ac .ah{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;cursor:pointer;font-size:11px;font-weight:600;background:var(--card);user-select:none}
+.ac .ah .arw{font-size:8px;color:var(--t3);transition:transform .3s}
+.ac .ah.open .arw{transform:rotate(180deg)}
+.ac .ab{display:none;padding:0 10px 10px}
+.ac .ab.show{display:block}
+.cls-i{padding:6px 0;border-bottom:1px solid var(--bd);font-size:10px;line-height:1.5}
+.cls-i:last-child{border-bottom:none}
+.cls-i .cn{color:var(--p);font-weight:600}
+
+/* Hash */
+.hash-box{background:#1e1e1e;border-radius:4px;padding:8px;font:9px/1.4 Menlo,monospace;max-height:200px;overflow-y:auto}
+.hb{margin-bottom:4px;padding:5px 8px;background:#252526;border-radius:3px;border-left:2px solid #569cd6}
+.hb .hid{color:#569cd6}
+.hb .hact{color:#ce9178}
+.hb .hlink{color:#6a9955;font-size:8px}
+.hb .hval{color:#4ec9b0;font-size:8px;word-break:break-all}
+
+/* Modal */
+.mask{position:fixed;top:0;left:50%;transform:translateX(-50%);width:320px;height:100vh;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;z-index:200}
+.panel{width:320px;background:var(--card);border-radius:10px 10px 0 0;padding:14px 14px 24px;max-height:75vh;overflow-y:auto}
+.panel h3{font-size:14px;margin-bottom:10px}
+
+/* Chart bars */
+.bars{display:flex;align-items:flex-end;gap:6px;height:100px}
+.bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.bcol{width:100%;border-radius:3px 3px 0 0;min-width:14px}
+.blbl{font-size:8px;color:var(--t3);margin-top:2px}
+
+/* Misc */
+.blank{text-align:center;padding:24px 0;color:var(--t3);font-size:28px}
+.blank p{font-size:11px;margin-top:4px}
+.gap{display:flex;gap:5px}
+.mt{margin-top:6px}
+.mb{margin-bottom:6px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="/vue.js"></script>
+<script src="/axios.js"></script>
+<script>
+const {createApp,ref,computed,nextTick}=Vue
+const api=axios.create({baseURL:'/api'})
+api.interceptors.request.use(c=>{const t=localStorage.getItem('ev3m_tok');if(t)c.headers.Authorization=t;return c})
+api.interceptors.response.use(r=>r,e=>{if(e.response&&e.response.status===401){localStorage.removeItem('ev3m_tok');location.reload()}return Promise.reject(e)})
+
+// Simple chart
+function miniBarChart(id,data){
+const el=document.getElementById(id);if(!el)return
+const max=Math.max(...data.map(d=>Math.max(d.ok||0,d.ng||0,d.mb||0)),1)
+el.innerHTML='<div class="bars">'+data.map(d=>'<div class="bar">'+
+'<div class="bcol" style="height:'+(d.ok/max*90)+'px;background:#67c23a"></div>'+
+'<div class="bcol" style="height:'+(d.ng/max*90)+'px;background:#f56c6c;margin-top:1px"></div>'+
+'<div class="bcol" style="height:'+(d.mb/max*90)+'px;background:#e6a23c;margin-top:1px"></div>'+
+'<div class="blbl">'+d.label+'</div></div>').join('')+'</div>'
+}
+
+const app=createApp({
+setup(){
+const token=ref(localStorage.getItem('ev3m_tok')||'')
+const loginEmail=ref('admin@demo.com'),loginPwd=ref('123456'),loginErr=ref(''),loggingIn=ref(false)
+const user=ref({email:'',name:'',role:'user'}),pg=ref('dash'),loading=ref(false)
+
+// Tabs
+const tabs=computed(()=>{
+const base=[{k:'dash',label:'仪表盘',icon:'📊'},{k:'go',label:'判别',icon:'⚖️'},{k:'history',label:'历史',icon:'📋'},{k:'knowledge',label:'知识库',icon:'📚'}]
+if(user.value.role==='auditor'||user.value.role==='admin')base.splice(3,0,{k:'audit',label:'审核',icon:'✅'})
+if(user.value.role==='admin')base.splice(2,0,{k:'templates',label:'模板',icon:'📝'})
+base.push({k:'logs',label:'留痕',icon:'🔒'})
+return base
+})
+
+const pgTitle=computed(()=>({dash:'📊 仪表盘',go:'⚖️ 合规判别',history:'📋 判别历史',templates:'📝 模板管理',knowledge:'📚 知识库',audit:'✅ 人工审核',logs:'🔒 司法留痕'})[pg.value]||'')
+
+// Dashboard
+const ss=ref({today:0,pending:0,tmpl:0,rate:'0%'}),recent=ref([])
+
+// Discriminate
+const goStep=ref(0),goInput=ref(''),goForm=ref({})
+const goCls=ref({templateName:'',confidence:0,matchedKeywords:[],fields:[],templateId:0})
+const goRules=ref([]),goResult=ref({finalResult:'',conclusion:''})
+
+// History
+const recs=ref([]),recTotal=ref(0),hPage=ref(1),hSearch=ref(''),hFilter=ref('')
+const recPages=computed(()=>Math.ceil(recTotal.value/20))
+const showD=ref(false),dRec=ref(null)
+
+// Templates
+const tpls=ref([])
+
+// Knowledge
+const regs=ref([]),openReg=ref(null)
+
+// Audit
+const audits=ref([]),showAudit=ref(false),auditDtl=ref(null)
+
+// Logs
+const logs=ref([]),cLogs=ref([]),cv=ref(null),logTotal=ref(0)
+
+// ===== ACTIONS =====
+async function doLogin(){
+if(!loginEmail.value||!loginPwd.value){loginErr.value='请输入邮箱和密码';return}
+loggingIn.value=true;loginErr.value=''
+try{const r=await api.post('/login',{email:loginEmail.value,password:loginPwd.value});token.value=r.data.token;user.value=r.data.user;localStorage.setItem('ev3m_tok',r.data.token);init()}catch(e){loginErr.value=e.response?.data?.error||'登录失败'}finally{loggingIn.value=false}
+}
+function doLogout(){token.value='';localStorage.removeItem('ev3m_tok');pg.value='dash'}
+async function init(){await loadDash();await loadRecent();nextTick(()=>miniBarChart('mchart',[{label:'8',ok:12,ng:5,mb:2},{label:'9',ok:15,ng:8,mb:3},{label:'10',ok:10,ng:6,mb:1},{label:'11',ok:18,ng:9,mb:4},{label:'12',ok:14,ng:7,mb:2},{label:'13',ok:16,ng:8,mb:3},{label:'14',ok:20,ng:10,mb:5}]))}
+async function loadDash(){try{const r=await api.get('/dashboard/stats');Object.assign(ss.value,{today:r.data.todayDiscriminations,pending:r.data.pendingAudits,tmpl:r.data.activeTemplates,rate:r.data.compliantRate})}catch(e){}}
+async function loadRecent(){try{const r=await api.get('/discrimination-records',{params:{pageSize:4}});recent.value=r.data.data}catch(e){}}
+
+function switchPg(k){pg.value=k;if(k==='history')loadRecords();else if(k==='templates')loadTemplates();else if(k==='knowledge')loadRegs();else if(k==='audit')loadAudits();else if(k==='logs')loadLogs()}
+
+// Discriminate
+async function doClassify(){if(!goInput.value)return;loading.value=true;try{const r=await api.post('/ai/classify',{text:goInput.value});goCls.value=r.data;goStep.value=1}catch(e){alert(e.response?.data?.error||'分类失败')}finally{loading.value=false}}
+async function doDisc(){loading.value=true;try{const r=await api.post('/discriminate',{templateId:goCls.value.templateId,templateName:goCls.value.templateName,inputText:goInput.value,formData:goForm.value});goRules.value=r.data.executionLog;goResult.value={finalResult:r.data.finalResult,conclusion:r.data.conclusion};goStep.value=3}catch(e){alert(e.response?.data?.error||'判别失败')}finally{loading.value=false}}
+function goReset(){goStep.value=0;goInput.value='';goForm.value={};goResult.value={};goRules.value=[]}
+
+// History
+async function loadRecords(p){if(p!==undefined)hPage.value=p;try{const params={page:hPage.value,pageSize:15};if(hSearch.value)params.search=hSearch.value;if(hFilter.value)params.result=hFilter.value;const r=await api.get('/discrimination-records',{params});recs.value=r.data.data;recTotal.value=r.data.total}catch(e){}}
+async function showDetail(id){try{const r=await api.get(`/discrimination-records/${id}`);dRec.value={...r.data.record,rule_results:r.data.record.rule_results?JSON.parse(r.data.record.rule_results):[]};showD.value=true}catch(e){alert('加载失败')}}
+
+// Templates
+async function loadTemplates(){try{const r=await api.get('/templates',{params:{pageSize:100}});tpls.value=r.data.data}catch(e){}}
+function showTpl(t){alert(`${t.name}\n编号:${t.code}\nv${t.version} · ${t.usage_count}次\n\n${t.description||''}`)}
+
+// Knowledge
+async function loadRegs(){try{const r=await api.get('/regulations',{params:{pageSize:100}});regs.value=r.data.data}catch(e){}}
+async function toggleReg(r){if(openReg.value===r.id){openReg.value=null;return};openReg.value=r.id;if(!r._clauses){try{const res=await api.get(`/regulations/${r.id}/clauses`);r._clauses=res.data.clauses}catch(e){}}}
+
+// Audit
+async function loadAudits(){try{const r=await api.get('/audit-tasks',{params:{status:'pending'}});audits.value=r.data.data}catch(e){}}
+async function viewAudit(t){try{const r=await api.get(`/discrimination-records/${t.record_id}`);auditDtl.value={...t,_rules:r.data.record.rule_results?JSON.parse(r.data.record.rule_results):[]};showAudit.value=true}catch(e){alert('加载失败')}}
+async function doAudit(row,act){const txt=act==='approve'?'批准':'驳回';if(!confirm(`确定${txt}?`))return;try{await api.post(`/audit-tasks/${row.id}/action`,{action:act});alert(`✅ ${txt}成功`);loadAudits();loadDash()}catch(e){alert(e.response?.data?.error||'操作失败')}}
+
+// Logs
+async function loadLogs(){try{const r=await api.get('/operation-logs',{params:{pageSize:100}});logs.value=r.data.data;cLogs.value=r.data.data.slice(0,6)}catch(e){}}
+async function doVerify(){loading.value=true;try{const r=await api.post('/operation-logs/verify');cv.value=r.data.isValid;logTotal.value=r.data.totalBlocks;alert(r.data.isValid?`✅ 完整! ${r.data.totalBlocks}区块`:'❌ 检测到篡改!')}catch(e){alert('校验失败')}finally{loading.value=false}}
+
+// Init
+if(token.value){(async()=>{try{const r=await api.get('/user/me');user.value=r.data.user;await init()}catch(e){token.value='';localStorage.removeItem('ev3m_tok')}})()}
+
+return{
+token,loginEmail,loginPwd,loginErr,loggingIn,user,pg,pgTitle,loading,tabs,ss,recent,switchPg,
+goStep,goInput,goForm,goCls,goRules,goResult,doClassify,doDisc,goReset,
+recs,recTotal,hPage,hSearch,hFilter,recPages,showD,dRec,loadRecords,showDetail,
+tpls,showTpl,loadTemplates,
+regs,openReg,toggleReg,loadRegs,
+audits,showAudit,auditDtl,viewAudit,doAudit,loadAudits,
+logs,cLogs,cv,logTotal,doVerify,loadLogs,
+doLogin,doLogout
+}
+},
+template:`
+<!-- Login -->
+<div v-if="!token" class="login-pg">
+<div class="ico">🤖</div>
+<h1>电梯安全管理AI</h1>
+<div class="sub">特种设备合规判别系统</div>
+<input v-model="loginEmail" placeholder="邮箱" @keyup.enter="doLogin">
+<input v-model="loginPwd" type="password" placeholder="密码" @keyup.enter="doLogin">
+<button class="btn" @click="doLogin" :disabled="loggingIn">{{loggingIn?'登录中...':'登 录'}}</button>
+<div class="err" v-if="loginErr">{{loginErr}}</div>
+<div class="tip">admin@demo.com · 123456</div>
+</div>
+
+<!-- Main -->
+<div v-else style="width:320px;min-height:480px;margin:0 auto;position:relative">
+<div class="tbar">{{pgTitle}}<span style="font-size:10px;color:var(--t3);font-weight:400">{{user.email}}</span></div>
+<div class="ct">
+
+<!-- DASHBOARD -->
+<template v-if="pg==='dash'">
+<div class="stats">
+<div class="stat" @click="switchPg('history')"><div class="sv" style="color:var(--p)">{{ss.today}}</div><div class="sl">今日判别</div></div>
+<div class="stat" @click="switchPg('audit')"><div class="sv" style="color:var(--w)">{{ss.pending}}</div><div class="sl">待审核</div></div>
+<div class="stat" @click="switchPg('templates')"><div class="sv" style="color:var(--s)">{{ss.tmpl}}</div><div class="sl">活跃模板</div></div>
+<div class="stat"><div class="sv" style="color:var(--d)">{{ss.rate}}</div><div class="sl">合规率</div></div>
+</div>
+<div class="card"><div class="ctitle">📈 近7天趋势</div><div id="mchart"></div></div>
+<div class="card">
+<button class="m-btn m-btn-p" @click="switchPg('go');goStep=0">⚖️ 新建合规判别</button>
+<button class="m-btn m-btn-o" @click="switchPg('history');loadRecords()">📋 查看判别历史</button>
+<button class="m-btn m-btn-o" v-if="user.role==='auditor'||user.role==='admin'" @click="switchPg('audit');loadAudits()" style="margin-top:5px">✅ 审核 ({{ss.pending}})</button>
+</div>
+<div class="card"><div class="ctitle">📋 最近</div>
+<div v-for="r in recent" :key="r.id" class="lr" @click="showDetail(r.id)">
+<div class="ll"><div class="lt">{{r.template_name}} #{{r.id}}</div><div class="ls">{{r.created_at}}</div></div>
+<span :class="['tag','tag-'+(r.final_result==='合规'?'ok':r.final_result==='不合规'?'ng':'mb')]">{{r.final_result}}</span>
+</div>
+</div>
+</template>
+
+<!-- DISCRIMINATE -->
+<template v-if="pg==='go'">
+<div class="m-steps">
+<div v-for="(s,i) in ['输入','分类','填表','规则','判定']" :key="i" :class="['m-step',goStep>i?'d':'',goStep===i?'a':'']">
+<div class="dot">{{goStep>i?'✓':i+1}}</div><div class="lbl">{{s}}</div>
+</div>
+</div>
+<div class="card" v-if="goStep===0"><div class="ctitle">📝 问题描述</div>
+<textarea class="m-txa" v-model="goInput" placeholder="钢丝绳磨损率8%，维保间隔10天..."></textarea>
+<div class="gap mt"><button class="m-btn m-btn-p" style="flex:1" @click="doClassify" :disabled="loading||!goInput">{{loading?'AI分析...':'🤖 AI分析'}}</button><button class="m-btn m-btn-o" style="flex:1" @click="goInput='钢丝绳磨损率8%，维保间隔10天，制动器正常，门机正常，限速器已校验'">示例</button></div>
+</div>
+<div class="card" v-if="goStep===1"><div class="ctitle">🎯 AI分类</div>
+<div style="background:#ecf5ff;border-radius:4px;padding:8px 10px;margin-bottom:8px;font-size:10px">
+<div style="color:var(--t3)">匹配: <b style="color:var(--p);font-size:14px">{{goCls.templateName}}</b></div>
+<div>置信度 {{(goCls.confidence*100).toFixed(0)}}% · <span v-for="k in goCls.matchedKeywords" :key="k" class="tag tag-info" style="margin-right:2px">{{k}}</span></div>
+</div>
+<div class="gap"><button class="m-btn m-btn-p" style="flex:1" @click="goStep=2">确认 →</button><button class="m-btn m-btn-o" style="flex:1" @click="goStep=0">← 返回</button></div>
+</div>
+<div class="card" v-if="goStep===2"><div class="ctitle">📋 填表</div>
+<div v-for="f in goCls.fields" :key="f.field_name" style="margin-bottom:5px">
+<label style="font-size:10px;color:var(--t2)">{{f.field_label}}<span v-if="f.required" style="color:var(--d)">*</span></label>
+<input class="m-inp" v-model="goForm[f.field_name]" style="height:28px">
+</div>
+<div class="gap"><button class="m-btn m-btn-p" style="flex:1" @click="doDisc" :disabled="loading">{{loading?'判别中...':'⚖️ 提交'}}</button><button class="m-btn m-btn-o" style="flex:1" @click="goStep=1">← 返回</button></div>
+</div>
+<div class="card" v-if="goStep===3"><div class="ctitle">🔍 规则明细</div>
+<div v-for="(r,i) in goRules" :key="i" :class="['rr',r.status==='success'?'ok':r.status==='error'?'ng':'mb']">
+<div class="ri">{{r.status==='success'?'✅':r.status==='error'?'❌':'⚠️'}}</div>
+<div class="rc"><div class="rn">{{r.name}}</div><div class="rd">{{r.detail}}</div></div>
+<div class="rt"><span :class="['tag','tag-'+(r.status==='success'?'ok':r.status==='error'?'ng':'mb')]">{{r.result}}</span></div>
+</div>
+<button class="m-btn m-btn-p mt" @click="goStep=4">查看判定 →</button>
+</div>
+<div class="card" v-if="goStep===4"><div class="res-wrap">
+<div class="ri">{{goResult.finalResult==='合规'?'✅':goResult.finalResult==='不合规'?'❌':'⚠️'}}</div>
+<div class="rtl" :style="{color:goResult.finalResult==='合规'?'var(--s)':goResult.finalResult==='不合规'?'var(--d)':'var(--w)'}">{{goResult.finalResult}}</div>
+<div class="rdc">{{goResult.conclusion}}</div>
+<div class="gap"><button class="m-btn m-btn-p" style="flex:1" @click="goReset">🔄 新判别</button><button class="m-btn m-btn-o" style="flex:1" @click="switchPg('history');loadRecords()">📋 历史</button></div>
+</div></div>
+</template>
+
+<!-- HISTORY -->
+<template v-if="pg==='history'">
+<div class="card">
+<div class="ctitle">📋 记录（{{recTotal}}条）</div>
+<div class="gap mb">
+<input class="m-inp" style="flex:1;height:28px;font-size:11px" v-model="hSearch" placeholder="搜索..." @keyup.enter="loadRecords(1)">
+<select style="border:1px solid var(--bd);border-radius:4px;padding:0 4px;font-size:10px" v-model="hFilter" @change="loadRecords(1)">
+<option value="">全部</option><option value="合规">合规</option><option value="不合规">不合规</option><option value="待人工">待人工</option>
+</select>
+<button class="m-btn m-btn-p" style="width:auto;height:28px;font-size:10px;padding:0 8px" @click="loadRecords(1)">搜</button>
+</div>
+<div v-for="r in recs" :key="r.id" class="lr" @click="showDetail(r.id)">
+<div class="ll"><div class="lt">{{r.template_name}} #{{r.id}}</div><div class="ls">{{r.user_email}} · {{r.created_at}}</div></div>
+<span :class="['tag','tag-'+(r.final_result==='合规'?'ok':r.final_result==='不合规'?'ng':'mb')]">{{r.final_result}}</span>
+</div>
+<div class="gap mt" style="justify-content:center;flex-wrap:wrap" v-if="recPages>1">
+<button v-for="p in Math.min(recPages,8)" :key="p" @click="loadRecords(p)" :style="{padding:'3px 10px',borderRadius:'3px',fontSize:'10px',cursor:'pointer',border:'1px solid var(--bd)',background:p===hPage?'var(--p)':'#fff',color:p===hPage?'#fff':''}">{{p}}</button>
+</div>
+</div>
+</template>
+
+<!-- TEMPLATES (admin only) -->
+<template v-if="pg==='templates'">
+<div class="card"><div class="ctitle">📝 模板（{{tpls.length}}套）</div>
+<div v-for="t in tpls" :key="t.id" class="lr" @click="showTpl(t)">
+<div class="ll"><div class="lt">{{t.code}} {{t.name}}</div><div class="ls">v{{t.version}} · 已用{{t.usage_count}}次 · {{t.category}}</div></div>
+<span style="font-size:12px;color:var(--t3)">›</span>
+</div></div>
+</template>
+
+<!-- KNOWLEDGE -->
+<template v-if="pg==='knowledge'">
+<div class="card"><div class="ctitle">📚 知识库（{{regs.length}}部法规）</div>
+<div v-for="r in regs" :key="r.id" class="ac">
+<div :class="['ah',openReg===r.id?'open':'']" @click="toggleReg(r)"><span>{{r.code}} {{r.name}}</span><span class="arw">▼</span></div>
+<div :class="['ab',openReg===r.id?'show':'']">
+<div style="font-size:9px;color:var(--t3);margin-bottom:6px">{{r.source}} · {{r.effective_date}}生效</div>
+<div v-if="r._clauses" v-for="c in r._clauses" :key="c.id" class="cls-i">
+<span class="cn">{{c.clause_number}}</span>
+<div style="font-weight:600;margin:1px 0">{{c.title}}</div>
+<div style="color:var(--t2)">{{c.content}}</div>
+</div>
+<div v-else style="text-align:center;color:var(--t3);padding:6px;font-size:10px">加载中...</div>
+</div>
+</div></div>
+</template>
+
+<!-- AUDIT -->
+<template v-if="pg==='audit'">
+<div class="card"><div class="ctitle">✅ 审核（{{audits.length}}条待处理）</div>
+<div v-if="audits.length===0" class="blank"><p>✅ 暂无待审核</p></div>
+<div v-for="t in audits" :key="t.id" style="padding:8px 0;border-bottom:1px solid #f2f2f2;cursor:pointer" @click="viewAudit(t)">
+<div style="font-weight:600;font-size:11px;margin-bottom:2px">{{t.template_name}} · 记录#{{t.record_id}}</div>
+<div style="font-size:10px;color:var(--t3);margin-bottom:4px">{{t.submitter_email}} · {{t.submitted_at}}</div>
+<div class="gap">
+<button class="m-btn m-btn-s" style="width:auto;height:26px;font-size:10px;padding:0 14px" @click.stop="doAudit(t,'approve')">批准</button>
+<button class="m-btn m-btn-d" style="width:auto;height:26px;font-size:10px;padding:0 14px" @click.stop="doAudit(t,'reject')">驳回</button>
+</div>
+</div>
+</div>
+</template>
+
+<!-- LOGS -->
+<template v-if="pg==='logs'">
+<div class="stats"><div class="stat"><div class="sv" style="color:var(--p)">{{logs.length}}</div><div class="sl">总区块</div></div>
+<div class="stat"><div class="sv" :style="{color:cv===true?'var(--s)':cv===false?'var(--d)':'var(--t3)'}">{{cv===true?'✅':cv===false?'❌':'❓'}}</div><div class="sl">完整性</div></div></div>
+<div class="card"><div class="ctitle">📜 哈希链（最近6条）</div><div class="hash-box">
+<div v-for="(l,i) in cLogs" :key="i" class="hb"><div><span class="hid">#{{l.id}}</span> <span class="hact">{{l.action}}</span></div><div class="hlink">← {{l.prev_hash?l.prev_hash.substring(0,14)+'...':'Genesis'}}</div><div class="hval">→ {{l.hash.substring(0,36)}}...</div></div>
+</div>
+<button class="m-btn m-btn-p mt" @click="doVerify" :disabled="loading">🔍 验证哈希链</button>
+<div :style="{padding:'6px 10px',borderRadius:'4px',fontSize:'10px',marginTop:'6px',background:cv===true?'#f0f9eb':cv===false?'#fef0f0':'#f5f7fa',color:cv===true?'var(--s)':cv===false?'var(--d)':'var(--t3)'}">{{cv===null?'点击验证':cv?'✅ 完整! '+logTotal+'个区块'+(logTotal?'可司法采信':'')+'':'❌ 检测到篡改!'}}</div>
+</div>
+</template>
+
+</div><!-- ct -->
+
+<!-- TAB BAR -->
+<div class="tbb">
+<div v-for="t in tabs" :key="t.k" :class="['t',pg===t.k?'on':'']" @click="switchPg(t.k)">
+<span class="ti">{{t.icon}}</span>{{t.label}}
+<template v-if="t.k==='audit'&&audits.length>0"><span style="background:var(--d);color:#fff;border-radius:8px;padding:0 5px;font-size:8px;position:absolute;top:4px;right:4px;line-height:1.4">{{audits.length}}</span></template>
+</div>
+</div>
+
+<!-- Detail Modal -->
+<div v-if="showD" class="mask" @click.self="showD=false"><div class="panel"><h3>📋 记录详情</h3>
+<template v-if="dRec">
+<div style="font-size:10px;line-height:2"><div>模板: {{dRec.template_name}}</div><div>结果: <span :class="['tag','tag-'+(dRec.final_result==='合规'?'ok':dRec.final_result==='不合规'?'ng':'mb')]">{{dRec.final_result}}</span></div><div>时间: {{dRec.created_at}}</div></div>
+<div v-if="dRec.rule_results&&dRec.rule_results.length" style="margin-top:8px"><div style="font-weight:600;font-size:11px;margin-bottom:4px">规则明细</div>
+<div v-for="(r,i) in dRec.rule_results" :key="i" :class="['rr',r.status==='success'?'ok':r.status==='error'?'ng':'mb']"><div class="ri">{{r.status==='success'?'✅':r.status==='error'?'❌':'⚠️'}}</div><div class="rc"><div class="rn">{{r.name}}</div><div class="rd">{{r.detail}}</div></div></div></div>
+</template>
+<button class="m-btn m-btn-o mt" @click="showD=false">关闭</button></div></div>
+
+<!-- Audit Modal -->
+<div v-if="showAudit" class="mask" @click.self="showAudit=false"><div class="panel"><h3>审核详情</h3>
+<template v-if="auditDtl">
+<div style="font-size:10px;line-height:2"><div>模板: {{auditDtl.template_name}}</div><div>AI判定: <span :class="['tag','tag-'+(auditDtl.final_result==='合规'?'ok':auditDtl.final_result==='不合规'?'ng':'mb')]">{{auditDtl.final_result}}</span></div><div>提交人: {{auditDtl.submitter_email}}</div></div>
+<div v-if="auditDtl._rules&&auditDtl._rules.length" style="margin-top:6px"><div v-for="(r,i) in auditDtl._rules" :key="i" :class="['rr',r.status==='success'?'ok':r.status==='error'?'ng':'mb']"><div class="ri">{{r.status==='success'?'✅':r.status==='error'?'❌':'⚠️'}}</div><div class="rc"><div class="rn">{{r.name}}</div><div class="rd">{{r.detail}}</div></div></div></div>
+</template>
+<div class="gap mt" style="justify-content:flex-end">
+<button class="m-btn m-btn-s" style="width:auto;height:28px;font-size:10px;padding:0 16px" @click="doAudit(auditDtl,'approve');showAudit=false">批准</button>
+<button class="m-btn m-btn-d" style="width:auto;height:28px;font-size:10px;padding:0 16px" @click="doAudit(auditDtl,'reject');showAudit=false">驳回</button>
+</div></div></div>
+
+</div><!-- main -->
+`
+})
+app.mount('#app')
+</script>
+</body>
+</html>

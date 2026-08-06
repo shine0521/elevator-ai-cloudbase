@@ -1,0 +1,16 @@
+# Render.com 部署配置
+# 此文件告诉 Render 如何构建和启动应用
+
+services:
+  - type: web
+    name: elevator-ai-system
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000

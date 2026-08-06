@@ -1,0 +1,286 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '合规判别'}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">合规判别工作台</div>
+        <div class="pd">AI 负责分类与字段提取 · 结论由确定性规则引擎生成 · 无法判定时转人工兜底</div>
+      </div>
+      <span class="tag blue"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:3px"><path d="M12 2a4 4 0 0 0-4 4c0 2 4 6 4 6s4-4 4-6a4 4 0 0 0-4-4z"/><path d="M12 14v8"/></svg>AI 仅辅助，不决策</span>
+    </div>
+
+    <div class="steps" id="steps">
+      <div class="step active" data-step="1"><div class="sc">1</div><div class="st">场景输入</div><div class="sd">自然语言描述</div></div>
+      <div class="step" data-step="2"><div class="sc">2</div><div class="st">模板确认</div><div class="sd">AI 匹配 + 填表</div></div>
+      <div class="step" data-step="3"><div class="sc">3</div><div class="st">判别结果</div><div class="sd">规则引擎结论</div></div>
+    </div>
+
+    <!-- Step 1 -->
+    <div class="card" id="card1">
+      <div class="card-h"><div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>电梯场景描述</div></div>
+      <div class="card-b">
+        <div class="field">
+          <label>场景描述 <span class="hint">请描述电梯设备参数、运行状态、检验与维保情况</span></label>
+          <textarea class="txta" id="sceneInput" rows="5" placeholder="例：曳引式电梯、额定载重量 1000kg、额定速度 2.5m/s、12 层 12 站、使用年限 8 年、上次检验日期 2023-06-15、曳引轮槽磨损超标、钢丝绳有异常噪声……"></textarea>
+        </div>
+        <div class="flex gap wrap">
+          <button class="btn btn-p" id="btnAnalyze" onclick="analyzeScene()">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            AI 分析场景
+          </button>
+          <button class="btn btn-ghost" onclick="fillDemo()">填入示例</button>
+          <button class="btn btn-ghost" id="btnClear" style="display:none" onclick="clearAll()">重置</button>
+        </div>
+        <div id="step1Status" class="t-sm soft mt-s"></div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="card hide" id="card2">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3M3 16v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3M3 12h18"/></svg>匹配模板与字段</div>
+        <div class="flex gap-s">
+          <span class="tag info" id="tplName">--</span>
+          <span class="tag blue" id="tplConf">置信度 --%</span>
+        </div>
+      </div>
+      <div class="card-b">
+        <!-- AI-04：置信度低于阈值时引导人工选择模板 -->
+        <div id="lowConfBox" class="alert warn hide mb">
+          <div>
+            <strong>AI 对模板匹配把握不足</strong>
+            <div class="t-sm soft mt-s" id="lowConfMsg"></div>
+            <div class="field mt-s" style="margin-bottom:0">
+              <label>请人工选择适用模板</label>
+              <select class="sel" id="manualTplSelect" onchange="switchTemplate(this.value)">
+                <option value="">请选择模板…</option>
+                <% (typeof templates !== 'undefined' ? templates : []).forEach(function(t){ %>
+                <option value="<%= t.id %>"><%= t.name %><%= t.category ? '（' + t.category + '）' : '' %></option>
+                <% }); %>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div id="fieldsForm" class="grid-2"></div>
+        <div id="extractHint" class="t-sm soft mt-s"></div>
+        <div class="divider"></div>
+        <div class="flex gap wrap">
+          <button class="btn btn-p" id="btnDiscriminate" onclick="submitDiscriminate()">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>
+            执行规则引擎判别
+          </button>
+        </div>
+        <div id="step2Status" class="t-sm soft mt-s"></div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="card hide" id="card3">
+      <div class="card-h"><div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>判别结果</div></div>
+      <div class="card-b" id="resultArea"></div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<script>
+(function(){
+  var currentTemplateId=null, currentFields=[], pendingAudit=false;
+  var lastExtracted={}, lastAiMeta=null;
+
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  // 字段 DOM id 必须可安全回查（BUG-06）：字段名可能含点/空格等 CSS 非法字符，
+  // 统一用索引作为 id，同时用 data-field 保留真实字段名。
+  function fieldId(i){ return 'f-idx-'+i; }
+  function fieldEl(i){ return document.getElementById(fieldId(i)); }
+  function setStep(n){document.querySelectorAll('#steps .step').forEach(function(s){var v=+s.dataset.step;s.classList.toggle('active',v===n);s.classList.toggle('done',v<n);});}
+  function setLoading(btn,txt,loading){if(btn){btn.disabled=!!loading;btn.innerHTML=txt;}}
+  function showCard(id,on){document.getElementById(id).classList.toggle('hide',!on);}
+
+  window.fillDemo=function(){
+    document.getElementById('sceneInput').value='曳引式电梯，额定载重量1050kg，额定速度2.5m/s，共12层12站12门，使用年限9年，上次定期检验日期2023-06-15，检验机构A类，下次检验日期2024-06-15。曳引轮槽磨损超标，钢丝绳有异常噪声，控制柜有烧灼痕迹，安全钳试验日期2023-01-10。';
+  };
+  window.clearAll=function(){
+    document.getElementById('sceneInput').value='';
+    showCard('card2',false); showCard('card3',false);
+    document.getElementById('btnClear').style.display='none';
+    document.getElementById('step1Status').textContent='';
+    document.getElementById('resultArea').innerHTML='';
+    document.getElementById('lowConfBox').classList.add('hide');
+    document.getElementById('extractHint').innerHTML='';
+    var sel=document.getElementById('manualTplSelect'); if(sel) sel.value='';
+    currentTemplateId=null; currentFields=[]; lastExtracted={}; lastAiMeta=null; setStep(1);
+  };
+
+  window.analyzeScene=function(){
+    var input=document.getElementById('sceneInput').value.trim();
+    var btn=document.getElementById('btnAnalyze'), status=document.getElementById('step1Status');
+    if(!input){status.innerHTML='<span style="color:var(--danger)">请先输入电梯场景描述</span>';return;}
+    status.innerHTML='<span style="color:var(--primary)">AI 正在分类与提取字段…</span>';
+    setLoading(btn,'<span class="spinner" style="width:16px;height:16px;border-width:2px"></span> 分析中',true);
+    App.api('/api/ai/classify',{method:'POST',body:JSON.stringify({description:input})}).then(function(d){
+      setLoading(btn,'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg> AI 分析场景',false);
+      if(d.error){status.innerHTML='<span style="color:var(--danger)">'+esc(d.error)+'</span>';return;}
+      lastAiMeta=d;
+      lastExtracted=d.extracted||{};
+
+      showCard('card2',true); showCard('card3',false);
+      document.getElementById('btnClear').style.display='inline-flex';
+      setStep(2);
+
+      var conf=Number(d.confidence||0);
+      document.getElementById('tplConf').textContent='置信度 '+(conf*100).toFixed(0)+'%'+(d.provider?'・'+d.provider:'');
+
+      // AI-04：低置信度 / 未命中 → 引导人工选择，绝不“猜一个”直接进规则引擎
+      var lowBox=document.getElementById('lowConfBox');
+      if(d.needManualSelect || !d.templateId){
+        lowBox.classList.remove('hide');
+        document.getElementById('lowConfMsg').innerHTML=esc(d.reason||'请人工确认适用模板')+
+          (d.candidates&&d.candidates.length?'<br>候选：'+d.candidates.map(function(c){return esc(c.templateName)+'('+c.score+')';}).join('、'):'');
+        var sel=document.getElementById('manualTplSelect');
+        if(sel && d.templateId) sel.value=String(d.templateId);
+        status.innerHTML='<span style="color:var(--warning)">AI 置信度不足，请在下方选择模板后继续</span>';
+      }else{
+        lowBox.classList.add('hide');
+        status.innerHTML='<span style="color:var(--success)">已匹配模板：'+esc(d.templateName||'')+'，请核对并补全字段</span>';
+      }
+
+      if(d.templateId){
+        applyTemplate(d.templateId, d.templateName, d.fields||[], lastExtracted, d.extractEvidence||{});
+      }else{
+        currentTemplateId=null; currentFields=[];
+        document.getElementById('tplName').textContent='待选择';
+        document.getElementById('fieldsForm').innerHTML='<div class="muted">请先选择模板</div>';
+      }
+      document.getElementById('card2').scrollIntoView({behavior:'smooth'});
+    }).catch(function(){ setLoading(btn,'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg> AI 分析场景',false); status.innerHTML='<span style="color:var(--danger)">网络错误，请重试</span>'; });
+  };
+
+  function applyTemplate(tplId, tplName, fields, values, evidence){
+    currentTemplateId=tplId;
+    currentFields=fields||[];
+    document.getElementById('tplName').textContent=tplName||('模板 #'+tplId);
+    renderFieldsForm(currentFields, values||{}, evidence||{});
+  }
+
+  /** 人工切换模板：重新拉取字段定义并尝试重新提取字段值 */
+  window.switchTemplate=function(tplId){
+    if(!tplId) return;
+    var scene=document.getElementById('sceneInput').value.trim();
+    var form=document.getElementById('fieldsForm');
+    form.innerHTML='<div class="muted">加载模板字段中…</div>';
+    App.api('/api/templates/'+tplId).then(function(t){
+      var fields=t.fields||[];
+      if(!scene){ applyTemplate(t.id,t.name,fields,{},{}); return; }
+      App.api('/api/ai/extract',{method:'POST',body:JSON.stringify({text:scene,templateId:t.id})}).then(function(e){
+        applyTemplate(t.id,t.name,fields,e.extracted||{},e.evidence||{});
+      }).catch(function(){ applyTemplate(t.id,t.name,fields,{},{}); });
+    }).catch(function(){ form.innerHTML='<div class="alert danger">模板字段加载失败</div>'; });
+  };
+
+  function renderFieldsForm(fields, values, evidence){
+    var c=document.getElementById('fieldsForm');
+    var hint=document.getElementById('extractHint');
+    values=values||{}; evidence=evidence||{};
+    if(!fields||!fields.length){c.innerHTML='<div class="muted">该模板暂无字段定义</div>';hint.innerHTML='';return;}
+
+    c.innerHTML=fields.map(function(f,i){
+      var ft=f.field_type;
+      var req=f.required?'<span style="color:var(--danger)">*</span>':'';
+      var lbl=esc(f.field_label||f.field_name);
+      var id=fieldId(i);
+      var dataAttr=' data-field="'+esc(f.field_name)+'" data-ftype="'+esc(ft)+'"';
+      var filled=values[f.field_name];
+      var mark=(filled!=null&&filled!=='')?'<span class="tag blue" style="margin-left:6px;font-size:10px">AI提取</span>':'';
+
+      if(ft==='textarea'){
+        return '<div class="field"><label>'+lbl+' '+req+mark+'</label><textarea class="txta" id="'+id+'"'+dataAttr+' rows="2" placeholder="'+lbl+'">'+esc(filled==null?'':filled)+'</textarea></div>';
+      }
+      if(ft==='select'||ft==='radio'){
+        // BUG-05：统一使用 App.parseOptions，兼容 JSON 数组 / 竖线 / 逗号 / 带引号等历史格式
+        var list=App.fieldOptions(f);
+        var opts=list.map(function(o){
+          var selAttr=(String(filled)===String(o))?' selected':'';
+          return '<option value="'+esc(o)+'"'+selAttr+'>'+esc(o)+'</option>';
+        }).join('');
+        return '<div class="field"><label>'+lbl+' '+req+mark+'</label><select class="sel" id="'+id+'"'+dataAttr+'><option value="">请选择</option>'+opts+'</select></div>';
+      }
+      if(ft==='file'){
+        return '<div class="field"><label>'+lbl+' '+req+'</label><input class="inp" id="'+id+'"'+dataAttr+' type="text" placeholder="文件名或链接" value="'+esc(filled==null?'':filled)+'"></div>';
+      }
+      if(ft==='date'){
+        // BUG-04：日期一律使用 YYYY-MM-DD 纯日期，不经过任何时区转换
+        var dv=App.normDate(filled);
+        return '<div class="field"><label>'+lbl+' '+req+mark+'</label><input class="inp" id="'+id+'"'+dataAttr+' type="date" value="'+esc(dv)+'"></div>';
+      }
+      var type=(ft==='number')?'number':'text';
+      return '<div class="field"><label>'+lbl+' '+req+mark+'</label><input class="inp" id="'+id+'"'+dataAttr+' type="'+type+'" placeholder="'+lbl+'" value="'+esc(filled==null?'':filled)+'"></div>';
+    }).join('');
+
+    // BUG-06：不再用硬编码的 element id 回填（那些 id 在实际模板上根本不存在），
+    // 改为基于本次渲染的索引引用 + AI 实际提取结果。
+    var n=Object.keys(values).filter(function(k){return values[k]!=null&&values[k]!=='';}).length;
+    hint.innerHTML = n
+      ? '<span style="color:var(--success)">已自动回填 '+n+' 个字段</span>（AI 仅负责提取，请务必人工核对后提交）'
+      : '<span class="muted">未从描述中自动提取到字段，请手动填写</span>';
+  }
+
+  window.submitDiscriminate=function(){
+    if(!currentTemplateId)return;
+    var btn=document.getElementById('btnDiscriminate'), status=document.getElementById('step2Status');
+    setLoading(btn,'<span class="spinner" style="width:16px;height:16px;border-width:2px"></span> 执行中',true);
+    status.innerHTML='<span style="color:var(--primary)">规则引擎执行中…</span>';
+    // BUG-06：通过渲染索引取 DOM，避免字段名含特殊字符时 getElementById 失效
+    var formData={};
+    currentFields.forEach(function(f,i){
+      var el=fieldEl(i);
+      if(!el) return;
+      var v=el.value;
+      // BUG-04：日期字段统一归一化为 YYYY-MM-DD，不使用 toISOString（会因时区跨天）
+      if(f.field_type==='date') v=App.normDate(v);
+      formData[f.field_name]=v;
+    });
+    var scene=document.getElementById('sceneInput').value.trim();
+    App.api('/api/discriminate',{method:'POST',body:JSON.stringify({templateId:currentTemplateId,inputText:scene,formData:formData})}).then(function(d){
+      setLoading(btn,'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg> 执行规则引擎判别',false);
+      if(d.error){status.innerHTML='<span style="color:var(--danger)">'+esc(d.error)+'</span>';return;}
+      renderResult(d); showCard('card3',true); setStep(3);
+      document.getElementById('card3').scrollIntoView({behavior:'smooth'});
+    }).catch(function(){ setLoading(btn,'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg> 执行规则引擎判别',false); status.innerHTML='<span style="color:var(--danger)">网络错误，请重试</span>'; });
+  };
+
+  function renderResult(d){
+    var area=document.getElementById('resultArea');
+    var cls,icon,defaultConc;
+    if(d.finalResult==='合规'){cls='ok';icon='<path d="M20 6L9 17l-5-5"/>';defaultConc='经系统判定，该电梯符合相关安全标准要求。';}
+    else if(d.finalResult==='不合规'){cls='ng';icon='<path d="M18 6L6 18M6 6l12 12"/>';defaultConc='经系统判定，该电梯存在安全隐患，不符合相关安全标准。';}
+    else{cls='mb';icon='<path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="9"/>';defaultConc='系统无法自动判定，已转人工审核兜底。';}
+
+    var logs=(d.executionLog||[]).map(function(it){
+      var stCls=it.status==='success'?'pass':it.status==='error'?'fail':'pass';
+      var stIcon=it.status==='success'?'✅':it.status==='error'?'❌':'⚠️';
+      return '<div class="rule '+stCls+'"><div class="rh"><span style="font-size:17px">'+stIcon+'</span><span class="rn">'+esc(it.name||'')+'</span>'+(it.result?'<span class="tag '+(it.status==='success'?'ok':'ng')+'">'+esc(it.result)+'</span>':'')+'</div>'+
+        (it.description?'<div class="rd">'+esc(it.description)+'</div>':'')+
+        (it.detail?'<div class="rd" style="color:var(--primary-d)">'+esc(it.detail)+'</div>':'')+
+        (it.formula?'<div class="rf">'+esc(it.formula)+'</div>':'')+
+        (it.clause?'<div class="rc">依据条款：'+esc(it.clause)+'</div>':'')+'</div>';
+    }).join('');
+
+    area.innerHTML=
+      '<div class="res-hero '+cls+'"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'+icon+'</svg></div>'+
+        '<div class="ttl">'+cls.replace('ok','合规').replace('ng','不合规').replace('mb','待人工审核')+'</div>'+
+        '<div class="rdc">'+esc(d.conclusion||defaultConc)+'</div></div>'+
+      '<div class="kv mb"><span class="k">判别 ID</span><span class="v">#'+(d.id||'--')+'</span>'+
+        '<span class="k">通过 / 失败 / 待定</span><span class="v"><span style="color:var(--success);font-weight:700">'+d.passCount+'</span> / <span style="color:var(--danger);font-weight:700">'+d.failCount+'</span> / <span style="color:var(--warning);font-weight:700">'+d.pendingCount+'</span></span></div>'+
+      (d.finalResult==='待人工'?'<a href="/audit" class="btn btn-w btn-block mb">前往人工审核工单 →</a>':'')+
+      '<div class="card-t mb-s mt" style="font-size:14px">规则执行明细</div>'+
+      (logs||'<div class="muted">无规则明细</div>');
+  }
+})();
+</script>
+<%- include('partials/foot') %>

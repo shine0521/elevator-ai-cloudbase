@@ -1,0 +1,204 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '仪表盘'}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">数据驾驶舱</div>
+        <div class="pd">实时掌握电梯安全合规判别态势 · AI 仅辅助、结论来自确定性规则引擎</div>
+      </div>
+      <div class="flex gap-s">
+        <a href="/discriminate" class="btn btn-p">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          发起合规判别
+        </a>
+      </div>
+    </div>
+
+    <div class="stats" id="statsGrid">
+      <a class="stat tone-blue" href="/history">
+        <div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
+        <div><div class="sv" id="s-today">--</div><div class="sl">今日判别数</div><div class="tr up" id="s-today-tr">实时</div></div>
+      </a>
+      <a class="stat tone-amber" href="/audit">
+        <div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <div><div class="sv" id="s-pending">--</div><div class="sl">待审核工单</div><div class="tr" id="s-pending-tr">需人工兜底</div></div>
+      </a>
+      <a class="stat tone-purple" href="/templates">
+        <div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3M3 16v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3M3 12h18"/></svg></div>
+        <div><div class="sv" id="s-templates">--</div><div class="sl">在用模板</div><div class="tr" id="s-templates-tr">模块库</div></div>
+      </a>
+      <a class="stat tone-green" href="/history">
+        <div class="si"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg></div>
+        <div><div class="sv" id="s-rate">--%</div><div class="sl">合规率</div><div class="tr up" id="s-rate-tr">近30天</div></div>
+      </a>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <div class="card">
+          <div class="card-h">
+            <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-3-3-4 4"/></svg>近 7 天判别趋势</div>
+            <span class="cs" id="chartTotal"></span>
+          </div>
+          <div class="bars" id="chartBars">
+            <div class="empty" style="width:100%"><div class="ei">📊</div><div class="et">加载中…</div></div>
+          </div>
+          <div class="flex center gap-s t-xs soft" style="justify-content:center;margin-top:6px">
+            <span class="tag ok">合规</span>
+            <span class="tag ng">不合规</span>
+            <span class="tag mb">待人工</span>
+          </div>
+          <div class="center-t muted t-xs" style="margin-top:4px">柱顶数字为当日总判别数</div>
+        </div>
+      </div>
+      <div class="col" style="max-width:330px">
+        <div class="card">
+          <div class="card-h"><div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>快捷操作</div></div>
+          <div class="card-b" style="padding-top:6px">
+            <a href="/discriminate" class="btn btn-block btn-p mb-s">发起合规判别</a>
+            <a href="/history" class="btn btn-block btn-ghost mb-s">判别历史查询</a>
+            <% if (user && (user.role === 'auditor' || user.role === 'admin')) { %><a href="/audit" class="btn btn-block btn-ghost mb-s">人工审核工单</a><% } %>
+            <a href="/templates" class="btn btn-block btn-ghost mb-s">模板库管理</a>
+            <a href="/knowledge" class="btn btn-block btn-ghost">知识库浏览</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>最近判别记录</div>
+        <a href="/history" class="btn btn-o btn-sm">查看全部 →</a>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th style="width:64px">ID</th><th>模板</th><th style="width:90px">结果</th><th style="width:160px">提交时间</th><th style="width:90px">操作</th></tr></thead>
+          <tbody id="recentBody">
+            <tr><td colspan="5" class="center muted" style="padding:34px">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<div class="overlay" id="detailModal">
+  <div class="modal">
+    <div class="modal-h"><span class="mt">判别详情</span><button class="x" onclick="App.closeModal('detailModal')">✕</button></div>
+    <div class="modal-b" id="modalBody"><div class="center" style="padding:40px"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  // BUG-04：后端时间为 UTC 无时区标记字符串，必须经 App.fmtDT 统一本地化
+  function fmtDate(v){ return App.fmtDT(v); }
+  function tagHtml(r){
+    if(r==='合规') return '<span class="tag ok">合规</span>';
+    if(r==='不合规') return '<span class="tag ng">不合规</span>';
+    return '<span class="tag mb">待人工</span>';
+  }
+
+  function loadStats(){
+    App.api('/api/dashboard/stats').then(function(d){
+      document.getElementById('s-today').textContent=d.todayDiscriminations||0;
+      document.getElementById('s-pending').textContent=d.pendingAudits||0;
+      document.getElementById('s-templates').textContent=d.activeTemplates||0;
+      var rate=d.compliantRate||0;
+      document.getElementById('s-rate').textContent=(typeof rate==='number'?rate.toFixed(1):rate)+(String(rate).indexOf('%')>=0?'':'%');
+      renderChart(d.last7Days||[]);
+    }).catch(function(){ document.getElementById('chartBars').innerHTML='<div class="empty" style="width:100%"><div class="ei">⚠️</div><div class="et">统计加载失败</div></div>'; });
+  }
+
+  function renderChart(days){
+    var c=document.getElementById("chartBars");
+    if(!days||!days.length){ c.innerHTML="<div class=\"empty\" style=\"width:100%\"><div class=\"ei\">📭</div><div class=\"et\">暂无数据</div></div>"; return; }
+    var max=Math.max.apply(null,days.map(function(d){return d.total||0}),1);
+    var tot=days.reduce(function(a,d){return a+(d.total||0)},0);
+    document.getElementById("chartTotal").textContent="合计 "+tot+" 次";
+    var H=150;
+    c.innerHTML=days.map(function(d){
+      var total=d.total||0, ok=d.compliant||0, ng=d.nonCompliant||0, mb=d.pending||0;
+      var stackH=total>0?Math.max(Math.round((total/max)*H),18):0;
+      function seg(v,grad){ return v>0?"<div class=\"bar-seg\" style=\"height:"+Math.round((v/total)*stackH)+"px;background:"+grad+"\"></div>":""; }
+      return "<div class=\"bar\" title=\"合规 "+ok+" · 不合规 "+ng+" · 待人工 "+mb+"\">"+
+        "<div class=\"bar-val\">"+(total||0)+"</div>"+
+        "<div class=\"bar-stack\" style=\"height:"+stackH+"px\">"+
+          seg(mb,"linear-gradient(180deg,#f7bd4f,#e08c00)")+
+          seg(ng,"linear-gradient(180deg,#f56a79,#e23b4e)")+
+          seg(ok,"linear-gradient(180deg,#3cc27e,#15a05a)")+
+        "</div>"+
+        "<div class=\"bar-lbl\">"+esc(d.label||"")+"</div></div>";
+    }).join("");
+  }
+
+function loadRecent(){
+    App.api('/api/discrimination-records?page=1&limit=8').then(function(d){
+      var tb=document.getElementById('recentBody');
+      var list=(d&&d.data)||[];
+      if(!list.length){ tb.innerHTML='<tr><td colspan="5" class="center muted" style="padding:34px">暂无记录</td></tr>'; return; }
+      tb.innerHTML=list.map(function(r){
+        return '<tr class="clickable" onclick="showDetail('+r.id+')">'+
+          '<td><span style="color:var(--primary);font-weight:600">#'+r.id+'</span></td>'+
+          '<td class="cell-main">'+esc(r.template_name||'')+'</td>'+
+          '<td>'+tagHtml(r.final_result)+'</td>'+
+          '<td class="soft t-xs">'+fmtDate(r.created_at)+'</td>'+
+          '<td><button class="btn btn-o btn-xs" onclick="event.stopPropagation();showDetail('+r.id+')">详情</button></td>'+
+        '</tr>';
+      }).join('');
+    }).catch(function(){ document.getElementById('recentBody').innerHTML='<tr><td colspan="5" class="center" style="padding:34px;color:var(--danger)">加载失败</td></tr>'; });
+  }
+
+  function showDetail(id){
+    App.openModal('detailModal');
+    App.api('/api/discrimination-records/'+id).then(function(d){
+      var rec=(d&&d.record)||{};
+      var rawRules=rec.rule_results;
+      var rulesArr=Array.isArray(rawRules)?rawRules:[];
+      var isSummary=!Array.isArray(rawRules)&&rawRules&&typeof rawRules==='object';
+      var rulesHtml;
+      if(isSummary){
+        var s=rawRules;
+        var matched=s.matched!=null?s.matched:'-';
+        var total=s.total!=null?s.total:'-';
+        var sevRaw=s.severity||'';
+        var sevZh=sevRaw==='high'?'高':sevRaw==='mid'?'中':sevRaw==='low'?'低':sevRaw==='mandatory'?'强制项':sevRaw==='recommended'?'推荐项':sevRaw==='optional'?'可选项':sevRaw||'-';
+        rulesHtml='<div class="rule"><div class="rh"><span style="font-size:17px">📋</span><span class="rn">规则执行概要</span></div>'+
+          '<div class="rd">匹配命中：<strong>'+esc(String(matched))+'</strong> / '+esc(String(total))+'</div>'+
+          '<div class="rd">严重级别：'+esc(sevZh)+'</div>'+
+          '<div class="rd muted">（摘要型记录。完整规则明细由规则引擎执行时生成，访“判别”页可实时运行）</div></div>';
+      }else{
+        rulesHtml=rulesArr.map(function(rule){
+          var ic=rule.status==='success'?'✅':rule.status==='error'?'❌':'⚠️';
+          var cls=rule.status==='success'?'pass':'fail';
+          return '<div class="rule '+cls+'"><div class="rh"><span style="font-size:17px">'+ic+'</span><span class="rn">'+esc(rule.name||'')+'</span>'+tagHtml(rule.result||rec.final_result)+'</div>'+
+            (rule.description?'<div class="rd">'+esc(rule.description)+'</div>':'')+
+            (rule.detail?'<div class="rd" style="color:var(--primary-d)">'+esc(rule.detail)+'</div>':'')+
+            (rule.formula?'<div class="rf">'+esc(rule.formula)+'</div>':'')+
+            (rule.clause?'<div class="rc">依据：'+esc(rule.clause)+'</div>':'')+'</div>';
+        }).join('');
+      }
+      document.getElementById('modalBody').innerHTML=
+        '<div class="kv mb"><span class="k">判别 ID</span><span class="v">#'+rec.id+'</span>'+
+        '<span class="k">模板</span><span class="v">'+esc(rec.template_name||'')+'</span>'+
+        '<span class="k">结论</span><span class="v">'+tagHtml(rec.final_result)+'</span>'+
+        '<span class="k">提交时间</span><span class="v">'+fmtDate(rec.created_at)+'</span></div>'+
+        (rec.conclusion?'<div class="alert info" style="margin-top:4px">'+esc(rec.conclusion)+'</div>':'')+
+        '<div class="card-t mb-s mt" style="font-size:14px">规则执行明细</div>'+
+        (rulesHtml||'<div class="muted">无规则明细</div>');
+    }).catch(function(){ document.getElementById('modalBody').innerHTML='<div class="alert danger">加载失败</div>'; });
+  }
+  window.showDetail=showDetail;
+
+  loadStats(); loadRecent();
+  setInterval(function(){loadStats();loadRecent();},30000);
+})();
+</script>
+<%- include('partials/foot') %>

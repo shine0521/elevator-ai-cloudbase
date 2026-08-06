@@ -1,0 +1,59 @@
+<div class="topbar">
+  <div class="tl">
+    <button class="menu-btn" onclick="App.toggleSide()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+    <div class="crumb">
+      <a href="/dashboard" class="home">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V10"/></svg>
+      </a>
+      <% if (typeof crumb !== 'undefined' && crumb && crumb.length) { %>
+        <% crumb.forEach(function(c,i){ %>
+          <span class="sep">/</span>
+          <% if (c.href && i < crumb.length-1) { %><a href="<%= c.href %>" class="soft"><%= c.label %></a><% } else { %><span class="cur"><%= c.label %></span><% } %>
+        <% }); %>
+      <% } else { %>
+        <span class="sep">/</span><span class="cur"><%= typeof title!=='undefined'?title:'' %></span>
+      <% } %>
+    </div>
+  </div>
+  <div class="tr">
+    <a class="view-toggle" href="<%= typeof toggleViewHref!=='undefined'?toggleViewHref:'/?view=mobile' %>" title="切换到<%= typeof toggleViewLabel!=='undefined'?toggleViewLabel:'移动版' %>" aria-label="切换视图">
+      <span class="vi"><%= typeof toggleViewIcon!=='undefined'?toggleViewIcon:'📱' %></span>
+      <span class="vl"><%= typeof toggleViewLabel!=='undefined'?toggleViewLabel:'移动版' %></span>
+    </a>
+    <div class="pill warn" id="aiPill" title="AI 引擎状态">
+      <span class="dot"></span><span id="aiPillTxt">AI 状态检测中…</span>
+    </div>
+    <div class="usr" onclick="App.toggleUser(event)">
+      <div class="av"><%= (user && user.name) ? user.name.charAt(0).toUpperCase() : 'U' %></div>
+      <div>
+        <div class="nm"><%= (user && user.name) ? user.name : '用户' %></div>
+        <div class="rl"><%= user&&user.role==='admin'?'管理员':user&&user.role==='auditor'?'审核员':'普通用户' %></div>
+      </div>
+      <div class="usr-menu" id="usrMenu">
+        <a href="/settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 8.6 1.65 1.65 0 0 0 4.6 6.6l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6V4a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 5.5a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c-.6.2-1 .8-1 1.41V11a2 2 0 0 1 0 4h.09a1.65 1.65 0 0 0 1.51 1z"/></svg>账号设置
+        </a>
+        <a href="/logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>操作留痕
+        </a>
+        <div class="div"></div>
+        <a href="/logout">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>退出登录
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var pill=document.getElementById('aiPill'), txt=document.getElementById('aiPillTxt');
+  fetch('/api/ai/status',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){
+    var ai=d&&d.ai;
+    var online=ai&&(ai.ollama||ai.available||ai.transformers_js);
+    if(online){ pill.className='pill ok'; txt.textContent='AI 引擎在线'+(ai.model?(' · '+ai.model):''); }
+    else { pill.className='pill warn'; txt.textContent='规则引擎模式'; }
+  }).catch(function(){ pill.className='pill warn'; txt.textContent='规则引擎模式'; });
+})();
+</script>
