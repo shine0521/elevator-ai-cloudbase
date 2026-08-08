@@ -199,6 +199,7 @@ function loadPage(page){
 
 // ── 详情弹窗 ──
 function showDetail(id){
+  document.body.style.overflow='hidden';
   var overlay=document.createElement('div');
   overlay.className='m-overlay';
   overlay.onclick=function(e){if(e.target===overlay)closeModal(overlay);};
@@ -293,6 +294,7 @@ function closeModal(overlay){
   if(overlay&&overlay.parentNode){
     overlay.parentNode.removeChild(overlay);
   }
+  document.body.style.overflow='';
 }
 
 // 初始加载

@@ -342,8 +342,9 @@
       var list = d.data || [];
       var modal = document.createElement('div');
       modal.className = 'overlay show';
+      document.body.style.overflow='hidden';
       modal.innerHTML = '<div class="modal" style="max-width:720px"><div class="modal-h"><span class="mt">法规版本链</span>'+
-        '<button class="x" onclick="this.closest(\'.overlay\').remove()">✕</button></div><div class="modal-b">'+
+        '<button class="x" onclick="this.closest(\'.overlay\').remove();document.body.style.overflow=\'\';">✕</button></div><div class="modal-b">'+
         (list.length? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>版本</th><th>编号</th><th>生效日期</th><th>审核</th><th>修订说明</th></tr></thead><tbody>'+
           list.map(function(v){
             var rm = REVIEW_MAP[v.review_status] || ['gray', v.review_status];
@@ -356,7 +357,7 @@
           }).join('')+'</tbody></table></div>' : '<div class="muted">暂无版本记录</div>')+
         '</div></div>';
       document.body.appendChild(modal);
-      modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+      modal.addEventListener('click', function(e){ if(e.target===modal){ modal.remove(); document.body.style.overflow=''; } });
     }).catch(function(){ alert('版本链加载失败'); });
   };
 

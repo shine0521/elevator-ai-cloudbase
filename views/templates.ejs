@@ -176,7 +176,8 @@
       var stCls=d.status==='published'?'ok':d.status==='archived'?'gray':'mb';
       var modal=document.createElement('div');
       modal.className='overlay show';
-      modal.innerHTML='<div class="modal"><div class="modal-h"><span class="mt">模板详情</span><button class="x" onclick="this.closest(\'.overlay\').remove()">✕</button></div>'+
+      document.body.style.overflow='hidden';
+      modal.innerHTML='<div class="modal"><div class="modal-h"><span class="mt">模板详情</span><button class="x" onclick="this.closest(\'.overlay\').remove();document.body.style.overflow=\'\';">✕</button></div>'+
         '<div class="modal-b"><div class="kv mb">'+
         '<span class="k">编码</span><span class="v">'+esc(d.code||'')+'</span>'+
         '<span class="k">名称</span><span class="v">'+esc(d.name||'')+'</span>'+
@@ -186,7 +187,7 @@
         '<span class="k">使用次数</span><span class="v">'+d.usage_count+'</span></div>'+
         '<div class="card-t mb-s" style="font-size:14px;font-weight:700">字段定义</div>'+fieldsHtml+'</div></div>';
       document.body.appendChild(modal);
-      modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+      modal.addEventListener('click',function(e){if(e.target===modal){modal.remove();document.body.style.overflow='';}});
     });
   };
 

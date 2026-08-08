@@ -155,6 +155,7 @@ body{font:13px/1.5 -apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaH
 
 <script>
 function confirmLogout(){
+  document.body.style.overflow='hidden';
   var overlay=document.createElement('div');
   overlay.className='m-overlay';
   overlay.onclick=function(e){if(e.target===overlay)removeOverlay(overlay)};
@@ -177,6 +178,7 @@ function confirmLogout(){
 
 function removeOverlay(overlay){
   if(overlay&&overlay.parentNode)overlay.parentNode.removeChild(overlay);
+  document.body.style.overflow='';
 }
 
 function doLogout(){
