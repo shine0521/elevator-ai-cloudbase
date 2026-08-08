@@ -15,9 +15,11 @@
     setTimeout(function(){ t.classList.remove('show'); setTimeout(function(){ t.remove(); }, 320); }, 2600);
   };
 
-  // Modal
-  App.openModal = function(id){ var m=document.getElementById(id); if(m) m.classList.add('show'); };
-  App.closeModal = function(id){ var m=document.getElementById(id); if(m) m.classList.remove('show'); };
+  // Modal (with body scroll lock)
+  App.openModal = function(id){ var m=document.getElementById(id); if(m){ m.classList.add('show'); document.body.style.overflow='hidden'; } };
+  App.closeModal = function(id){ var m=document.getElementById(id); if(m){ m.classList.remove('show'); document.body.style.overflow=''; } };
+  // Close on overlay click
+  document.addEventListener('click', function(e){ if(e.target.classList.contains('overlay') && e.target.classList.contains('show')){ App.closeModal(e.target.id); } });
 
   // Drawer
   App.openDrawer = function(id){ var d=document.getElementById(id); var mk=document.getElementById(id+'-mask'); if(d) d.classList.add('show'); if(mk) mk.classList.add('show'); };
