@@ -31,7 +31,7 @@
           <select class="sel" id="docDevice">
             <option value="">— 不关联设备 —</option>
             <% devices.forEach(function(d){ %>
-            <option value="<%= d.id %>"><%= d.device_code %> · <%= d.name %></option>
+            <option value="<%= d.id %>"><%= d.device_code %> · <%= d.device_name %></option>
             <% }) %>
           </select>
         </div>

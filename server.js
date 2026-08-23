@@ -727,7 +727,7 @@ app.get('/template-lifecycle', pageAuth, (req, res) => {
 // AI 文档生成中心（M2）
 app.get('/documents', pageAuth, (req, res) => {
   const db = getDb();
-  const devices = db.prepare('SELECT id, device_code, name FROM elevator_device ORDER BY id').all();
+  const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
   res.render('documents', { title: 'AI 文档生成', user: req.user, devices });
 });
 
