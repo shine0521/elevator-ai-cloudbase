@@ -724,6 +724,13 @@ app.get('/template-lifecycle', pageAuth, (req, res) => {
   res.render('template_lifecycle', { title: '模板生命周期', user: req.user, templates });
 });
 
+// AI 文档生成中心（M2）
+app.get('/documents', pageAuth, (req, res) => {
+  const db = getDb();
+  const devices = db.prepare('SELECT id, device_code, name FROM elevator_device ORDER BY id').all();
+  res.render('documents', { title: 'AI 文档生成', user: req.user, devices });
+});
+
 // 知识库
 app.get('/knowledge', pageAuth, (req, res) => {
   const db = getDb();
@@ -1559,6 +1566,81 @@ app.get('/api/templates/:id/match', authMiddleware, (req, res) => {
     }
   }
   res.json({ template: tpl, region, variantApplied: !!variant, fields, rules });
+});
+
+// ==================== API: AI 文档生成引擎 M2 ====================
+const docGen = require('./doc-generator');
+const ALLOWED_DEVICE_FIELDS = ['status', 'risk_level'];
+
+app.post('/api/documents/generate', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { docType, title, deviceId, formData, conclusion, updateField, newValue } = req.body;
+  if (!docType || !title) throw new ValidationError('文档类型与标题为必填');
+  let device = null;
+  if (deviceId) {
+    device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(deviceId);
+    if (!device) throw new ValidationError('关联设备不存在');
+  }
+  const model = docGen.buildModel({ docType, title, device, formData, conclusion });
+  const art = await docGen.generateDocument(model);
+  const tx = db.transaction(() => {
+    db.prepare(`INSERT INTO generated_document (doc_id, doc_type, doc_title, doc_number, pdf_file_path, word_file_path, pdf_hash, word_hash, generated_by, effective_date, status, device_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'AI_ENGINE', ?, 'GENERATED', ?)`)
+      .run(art.docId, art.docType, title, art.docNumber, art.pdfPath, art.wordPath, art.pdfHash, art.wordHash, new Date().toISOString().slice(0, 10), deviceId || null);
+    if (device) {
+      db.prepare('UPDATE device_document_index SET is_latest = 0 WHERE device_id = ? AND doc_type = ?').run(device.id, art.docType);
+      db.prepare('INSERT INTO device_document_index (device_id, doc_id, doc_type, is_latest) VALUES (?, ?, ?, 1)').run(device.id, art.docId, art.docType);
+      if (updateField && ALLOWED_DEVICE_FIELDS.includes(updateField)) {
+        const oldVal = device[updateField];
+        db.prepare(`UPDATE elevator_device SET ${updateField} = ? WHERE id = ?`).run(newValue, device.id);
+        db.prepare('INSERT INTO device_update_by_ai (device_id, source_type, source_id, field_name, old_value, new_value, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(device.id, 'DOC_GENERATION', art.docId, updateField, oldVal != null ? String(oldVal) : null, newValue != null ? String(newValue) : null, 'AI_ENGINE');
+      }
+    }
+  });
+  tx();
+  logOperation('AI生成文档', req.user.email, 'generated_document', art.docId, `生成${art.docType} ${art.docNumber}`);
+  res.json({ success: true, doc: { docId: art.docId, docNumber: art.docNumber, docType: art.docType, wordHash: art.wordHash, pdfHash: art.pdfHash } });
+}));
+
+app.get('/api/documents', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { docType, deviceId, q } = req.query;
+  const conds = [], params = [];
+  if (docType) { conds.push('doc_type = ?'); params.push(docType); }
+  if (deviceId) { conds.push('device_id = ?'); params.push(deviceId); }
+  if (q) { conds.push('(doc_title LIKE ? OR doc_number LIKE ?)'); params.push('%' + q + '%', '%' + q + '%'); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT doc_id, doc_type, doc_title, doc_number, status, device_id, created_at FROM generated_document ${where} ORDER BY created_at DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+app.get('/api/documents/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const d = db.prepare('SELECT * FROM generated_document WHERE doc_id = ?').get(req.params.id);
+  if (!d) throw new NotFoundError('文档不存在');
+  const updates = d.device_id ? db.prepare('SELECT * FROM device_update_by_ai WHERE device_id = ? AND source_id = ? ORDER BY update_id').all(d.device_id, d.doc_id) : [];
+  res.json({ ...d, updates });
+});
+
+app.get('/api/documents/:id/download', authMiddleware, (req, res) => {
+  const fs = require('fs');
+  const db = getDb();
+  const d = db.prepare('SELECT * FROM generated_document WHERE doc_id = ?').get(req.params.id);
+  if (!d) throw new NotFoundError('文档不存在');
+  const fmt = req.query.format === 'pdf' ? 'pdf' : 'word';
+  const filePath = fmt === 'pdf' ? d.pdf_file_path : d.word_file_path;
+  if (!filePath || !fs.existsSync(filePath)) throw new NotFoundError('文件不存在');
+  res.download(filePath, `${d.doc_number}.${fmt === 'pdf' ? 'pdf' : 'docx'}`);
+});
+
+app.get('/api/documents/:id/verify', authMiddleware, (req, res) => {
+  const fs = require('fs');
+  const db = getDb();
+  const d = db.prepare('SELECT * FROM generated_document WHERE doc_id = ?').get(req.params.id);
+  if (!d) throw new NotFoundError('文档不存在');
+  const pdfOk = d.pdf_file_path && fs.existsSync(d.pdf_file_path) && docGen.sha256(fs.readFileSync(d.pdf_file_path)) === d.pdf_hash;
+  const wordOk = d.word_file_path && fs.existsSync(d.word_file_path) && docGen.sha256(fs.readFileSync(d.word_file_path)) === d.word_hash;
+  res.json({ docId: d.doc_id, pdfOk, wordOk });
 });
 
 // ==================== API: 模板规则管理 ====================

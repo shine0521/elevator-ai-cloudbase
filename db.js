@@ -482,6 +482,53 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_tv_template ON template_versions(template_id);
     CREATE INDEX IF NOT EXISTS idx_twp_template ON template_warning_params(template_id);
     CREATE INDEX IF NOT EXISTS idx_tvar_base_region ON template_variants(base_template_id, region_code);
+
+    -- ==================== M2 AI 文档生成引擎（2.0 新增，黄金闭环） ====================
+    -- 生成的文档（PDF+Word + SHA-256）
+    CREATE TABLE IF NOT EXISTS generated_document (
+      doc_id TEXT PRIMARY KEY,
+      doc_type TEXT,
+      doc_title TEXT,
+      doc_number TEXT,
+      pdf_file_path TEXT,
+      word_file_path TEXT,
+      pdf_hash TEXT,
+      word_hash TEXT,
+      generated_by TEXT DEFAULT 'AI_ENGINE',
+      effective_date DATE,
+      status TEXT DEFAULT 'GENERATED',
+      device_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 设备维度文档索引（按设备编号可查全部关联文档）
+    CREATE TABLE IF NOT EXISTS device_document_index (
+      index_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL,
+      doc_id TEXT NOT NULL,
+      doc_type TEXT,
+      is_latest INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- AI 对设备库的每次字段更新（前值→后值，留痕）
+    CREATE TABLE IF NOT EXISTS device_update_by_ai (
+      update_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL,
+      source_type TEXT,
+      source_id TEXT,
+      field_name TEXT,
+      old_value TEXT,
+      new_value TEXT,
+      updated_by TEXT DEFAULT 'AI_ENGINE',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gd_type ON generated_document(doc_type);
+    CREATE INDEX IF NOT EXISTS idx_gd_device ON generated_document(device_id);
+    CREATE INDEX IF NOT EXISTS idx_ddi_device ON device_document_index(device_id);
+    CREATE INDEX IF NOT EXISTS idx_ddi_doc ON device_document_index(doc_id);
+    CREATE INDEX IF NOT EXISTS idx_dua_device ON device_update_by_ai(device_id);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段（SQLite不支持IF NOT EXISTS，需try-catch）

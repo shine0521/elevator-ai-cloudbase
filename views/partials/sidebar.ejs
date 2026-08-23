@@ -26,7 +26,7 @@ var NAV_ALIAS = {
   '': 'dashboard', 'dashboard': 'dashboard', 'index': 'dashboard', 'mobile': 'dashboard',
   'discriminate': 'discriminate', 'history': 'history', 'templates': 'templates',
   'knowledge': 'knowledge', 'audit': 'audit', 'research': 'research',
-  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle'
+  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle', 'documents': 'documents'
 };
 var navSegs = String(navPath).replace(/^\//, '').split('/').filter(Boolean);
 var navKeyRaw = (navSegs.length > 1 && navSegs[0] === 'mobile') ? navSegs[1] : (navSegs[0] || '');
@@ -88,6 +88,10 @@ function navCls(page){ return 'side-it' + (navPage === page ? ' on' : ''); }
     <a href="/template-lifecycle" class="<%= navCls('template-lifecycle') %>" data-page="template-lifecycle">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
       <span>模板生命周期</span>
+    </a>
+    <a href="/documents" class="<%= navCls('documents') %>" data-page="documents">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>
+      <span>AI 文档生成</span>
     </a>
     <% } %>
 

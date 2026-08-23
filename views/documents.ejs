@@ -1,0 +1,114 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: 'AI 文档生成', crumb: [{label:'AI 文档生成'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">AI 文档生成引擎</div>
+        <div class="pd">真实生成 PDF + Word（中文）· SHA-256 完整性校验 · 自动写入设备文档索引（M2）</div>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h"><div class="ct">生成文档</div></div>
+      <div class="card-b" style="padding:16px">
+        <div class="form-row mb">
+          <select class="sel" id="docType">
+            <option value="DAILY_INSPECTION_REPORT">日管控报告</option>
+            <option value="RISK_ASSESSMENT">风险评估报告</option>
+            <option value="OWNERSHIP_TRANSFER">过户文件</option>
+            <option value="EMERGENCY_REPORT">应急救援报告</option>
+            <option value="DISPOSAL_RECORD">报废处置记录</option>
+            <option value="SYSTEM_DOC">体系文件</option>
+            <option value="GENERIC">通用文档</option>
+          </select>
+          <input class="inp" id="docTitle" placeholder="文档标题" style="flex:2">
+        </div>
+        <div class="form-row mb">
+          <select class="sel" id="docDevice">
+            <option value="">— 不关联设备 —</option>
+            <% devices.forEach(function(d){ %>
+            <option value="<%= d.id %>"><%= d.device_code %> · <%= d.name %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="mb">
+          <label class="t-xs soft">填写内容（JSON：{"检查项":"值"}）</label>
+          <textarea class="inp" id="docForm" rows="4" placeholder='{"轿厢照明":"正常","制动器":"无异响","限速器":"校验合格"}' style="width:100%;font-family:monospace"></textarea>
+        </div>
+        <div class="mb">
+          <label class="t-xs soft">结论</label>
+          <textarea class="inp" id="docConclusion" rows="2" placeholder="本次检查结论…" style="width:100%"></textarea>
+        </div>
+        <div class="form-row mb">
+          <select class="sel" id="updField">
+            <option value="">— 不更新设备字段 —</option>
+            <option value="status">更新 设备状态 status</option>
+            <option value="risk_level">更新 风险等级 risk_level</option>
+          </select>
+          <input class="inp" id="updValue" placeholder="新值(如 ATTENTION / major)">
+          <button class="btn btn-p btn-sm" onclick="genDoc()">生成 PDF + Word</button>
+        </div>
+        <div id="genResult" class="soft t-xs"></div>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h"><div class="ct">已生成文档</div><div class="flex gap-s"><select class="sel sel-sm" id="fltDevice"><option value="">全部设备</option><% devices.forEach(function(d){ %><option value="<%= d.id %>"><%= d.device_code %></option><% }) %></select><button class="btn btn-o btn-sm" onclick="loadDocs()">刷新</button></div></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>编号</th><th>类型</th><th>标题</th><th>设备</th><th>生成时间</th><th>操作</th></tr></thead><tbody id="docBody"></tbody></table></div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function tag(s,cls){return '<span class="tag '+(cls||'blue')+'">'+esc(s)+'</span>';}
+
+  window.genDoc=function(){
+    var fd=document.getElementById('docForm').value.trim();
+    var formData=null;
+    if(fd){ try{ formData=JSON.parse(fd); }catch(e){ alert('填写内容 JSON 解析失败：'+e.message); return; } }
+    var body={docType:document.getElementById('docType').value,title:document.getElementById('docTitle').value.trim(),formData:formData,conclusion:document.getElementById('docConclusion').value.trim()||null};
+    var dev=document.getElementById('docDevice').value; if(dev) body.deviceId=parseInt(dev,10);
+    var uf=document.getElementById('updField').value, uv=document.getElementById('updValue').value.trim();
+    if(uf) body.updateField=uf; if(uv) body.newValue=uv;
+    if(!body.title){alert('请填写文档标题');return;}
+    App.api('/api/documents/generate',{method:'POST',body:JSON.stringify(body)}).then(function(d){
+      if(d.error){alert(d.error);return;}
+      var doc=d.doc;
+      document.getElementById('genResult').innerHTML='✅ 已生成 <b>'+esc(doc.docNumber)+'</b>（'+tag(doc.docType)+'）<br>PDF哈希 '+esc(doc.pdfHash.slice(0,16))+'…　Word哈希 '+esc(doc.wordHash.slice(0,16))+'…<br>'+
+        '<a class="btn btn-o btn-xs" href="/api/documents/'+doc.docId+'/download?format=word" target="_blank">下载 Word</a> '+
+        '<a class="btn btn-o btn-xs" href="/api/documents/'+doc.docId+'/download?format=pdf" target="_blank">下载 PDF</a>';
+      loadDocs();
+    }).catch(function(){alert('生成失败');});
+  };
+
+  function loadDocs(){
+    var dev=document.getElementById('fltDevice').value;
+    var url='/api/documents'+(dev?'?deviceId='+encodeURIComponent(dev):'');
+    App.api(url).then(function(d){
+      var data=d.data||[];
+      if(!data.length){document.getElementById('docBody').innerHTML='<tr><td colspan="6" class="center muted" style="padding:16px">暂无生成文档</td></tr>';return;}
+      document.getElementById('docBody').innerHTML=data.map(function(x){
+        return '<tr><td class="soft">'+esc(x.doc_number)+'</td><td>'+tag(x.doc_type)+'</td><td>'+esc(x.doc_title)+'</td><td class="soft">'+(x.device_id?('#'+x.device_id):'—')+'</td><td class="soft t-xs">'+esc((x.created_at||'').slice(0,19))+'</td>'+
+          '<td><a class="btn btn-o btn-xs" href="/api/documents/'+x.doc_id+'/download?format=word" target="_blank">Word</a> <a class="btn btn-o btn-xs" href="/api/documents/'+x.doc_id+'/download?format=pdf" target="_blank">PDF</a> <button class="btn btn-o btn-xs" onclick="verifyDoc(\''+x.doc_id+'\')">校验</button></td></tr>';
+      }).join('');
+    }).catch(function(){document.getElementById('docBody').innerHTML='';});
+  }
+
+  window.verifyDoc=function(id){
+    App.api('/api/documents/'+id+'/verify').then(function(d){
+      alert('PDF 完整性：'+(d.pdfOk?'✅ 一致':'❌ 不一致')+'\nWord 完整性：'+(d.wordOk?'✅ 一致':'❌ 不一致'));
+    }).catch(function(){alert('校验失败');});
+  };
+
+  loadDocs();
+})();
+</script>
+<%- include('partials/foot') %>
