@@ -717,6 +717,13 @@ app.get('/approvals', pageAuth, (req, res) => {
   res.render('approvals', { title: '审批中心', user: req.user, stats: byStatus, total });
 });
 
+// 模板生命周期（M1）
+app.get('/template-lifecycle', pageAuth, (req, res) => {
+  const db = getDb();
+  const templates = db.prepare('SELECT id, code, name, category, version, status FROM templates ORDER BY id').all();
+  res.render('template_lifecycle', { title: '模板生命周期', user: req.user, templates });
+});
+
 // 知识库
 app.get('/knowledge', pageAuth, (req, res) => {
   const db = getDb();
@@ -1405,6 +1412,154 @@ app.post('/api/approvals/:id/recall', authMiddleware, asyncHandler(async (req, r
   logOperation('撤回审批', req.user.email, 'approval_workflow', req.params.id, `撤回审批单#${req.params.id}`);
   res.json({ success: true, message: '已撤回' });
 }));
+
+// ==================== API: 模板全生命周期 M1 ====================
+
+// --- 模板版本快照 ---
+app.get('/api/templates/:id/versions', authMiddleware, (req, res) => {
+  const db = getDb();
+  const tv = db.prepare('SELECT * FROM template_versions WHERE template_id = ? ORDER BY version DESC').all(req.params.id);
+  res.json({ data: tv });
+});
+
+app.post('/api/templates/:id/versions', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const tpl = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
+  if (!tpl) throw new NotFoundError('模板不存在');
+  const fields = db.prepare('SELECT * FROM template_fields WHERE template_id = ? ORDER BY sort_order').all(req.params.id);
+  const rules = db.prepare('SELECT * FROM template_rules WHERE template_id = ? ORDER BY priority DESC, id').all(req.params.id);
+  const { version, regionCode, status, isSelectable } = req.body;
+  const maxV = db.prepare('SELECT MAX(version) as m FROM template_versions WHERE template_id = ?').get(req.params.id).m || 0;
+  const ver = version != null ? version : (maxV + 1);
+  const prev = db.prepare('SELECT id FROM template_versions WHERE template_id = ? ORDER BY version DESC LIMIT 1').get(req.params.id);
+  const info = db.prepare(`INSERT INTO template_versions (template_id, version, name, category, description, region_code, status, is_selectable, effective_date, previous_version_id, fields_json, rules_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(tpl.id, ver, tpl.name, tpl.category, tpl.description || null, regionCode || null, status || 'published', isSelectable != null ? (isSelectable ? 1 : 0) : 1, new Date().toISOString().slice(0, 10), prev ? prev.id : null, JSON.stringify(fields), JSON.stringify(rules), req.user.email);
+  logOperation('创建模板版本', req.user.email, 'template_versions', info.lastInsertRowid, `模板#${tpl.id} 版本${ver}`);
+  res.json({ success: true, id: info.lastInsertRowid, message: '版本快照已创建' });
+}));
+
+app.get('/api/templates/:id/versions/:vid', authMiddleware, (req, res) => {
+  const db = getDb();
+  const v = db.prepare('SELECT * FROM template_versions WHERE id = ? AND template_id = ?').get(req.params.vid, req.params.id);
+  if (!v) throw new NotFoundError('版本不存在');
+  let fields = [], rules = [];
+  try { fields = JSON.parse(v.fields_json || '[]'); rules = JSON.parse(v.rules_json || '[]'); } catch (e) {}
+  res.json({ ...v, fields, rules });
+});
+
+app.post('/api/templates/:id/versions/:vid/restore', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const tpl = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
+  if (!tpl) throw new NotFoundError('模板不存在');
+  const v = db.prepare('SELECT * FROM template_versions WHERE id = ? AND template_id = ?').get(req.params.vid, req.params.id);
+  if (!v) throw new NotFoundError('版本不存在');
+  let fields = [], rules = [];
+  try { fields = JSON.parse(v.fields_json || '[]'); rules = JSON.parse(v.rules_json || '[]'); } catch (e) {}
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM template_fields WHERE template_id = ?').run(tpl.id);
+    db.prepare('DELETE FROM template_rules WHERE template_id = ?').run(tpl.id);
+    const insF = db.prepare(`INSERT INTO template_fields (template_id, field_name, field_label, field_type, required, sort_order, options, default_value, placeholder, validation_rule, help_text) VALUES (@template_id,@field_name,@field_label,@field_type,@required,@sort_order,@options,@default_value,@placeholder,@validation_rule,@help_text)`);
+    fields.forEach(f => insF.run({ template_id: tpl.id, field_name: f.field_name, field_label: f.field_label, field_type: f.field_type, required: f.required, sort_order: f.sort_order, options: f.options, default_value: f.default_value, placeholder: f.placeholder, validation_rule: f.validation_rule, help_text: f.help_text }));
+    const insR = db.prepare(`INSERT INTO template_rules (template_id, rule_name, rule_type, rule_config, clause_ref, description, severity, priority, enabled) VALUES (@template_id,@rule_name,@rule_type,@rule_config,@clause_ref,@description,@severity,@priority,@enabled)`);
+    rules.forEach(r => insR.run({ template_id: tpl.id, rule_name: r.rule_name, rule_type: r.rule_type, rule_config: r.rule_config, clause_ref: r.clause_ref, description: r.description, severity: r.severity, priority: r.priority, enabled: r.enabled }));
+    db.prepare('UPDATE templates SET name=?, category=?, description=?, version=? WHERE id=?').run(v.name, v.category, v.description, v.version, tpl.id);
+  });
+  tx();
+  logOperation('恢复模板版本', req.user.email, 'templates', tpl.id, `恢复至版本${v.version}`);
+  res.json({ success: true, message: '已恢复至该版本' });
+}));
+
+// --- 模板预警参数（4 类） ---
+app.get('/api/template-warning-params', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { templateId } = req.query;
+  const params = templateId ? db.prepare('SELECT * FROM template_warning_params WHERE template_id = ? ORDER BY id').all(templateId) : db.prepare('SELECT * FROM template_warning_params ORDER BY id').all();
+  res.json({ data: params });
+});
+
+app.post('/api/template-warning-params', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { templateId, paramType, paramKey, label, operator, thresholdValue, urgencyLevel, action, enabled } = req.body;
+  if (!templateId || !paramType) throw new ValidationError('模板ID与参数类型为必填');
+  if (!['threshold', 'deadline', 'status', 'trend'].includes(paramType)) throw new ValidationError('参数类型须为 threshold/deadline/status/trend');
+  const info = db.prepare(`INSERT INTO template_warning_params (template_id, param_type, param_key, label, operator, threshold_value, urgency_level, action, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
+    .run(templateId, paramType, paramKey || null, label || null, operator || null, thresholdValue != null ? String(thresholdValue) : null, urgencyLevel || 'medium', action || 'notify', enabled ? 1 : 0);
+  logOperation('配置预警参数', req.user.email, 'template_warning_params', info.lastInsertRowid, `模板#${templateId} ${paramType}`);
+  res.json({ success: true, id: info.lastInsertRowid, message: '预警参数已添加' });
+}));
+
+app.put('/api/template-warning-params/:id', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const p = db.prepare('SELECT * FROM template_warning_params WHERE id = ?').get(req.params.id);
+  if (!p) throw new NotFoundError('参数不存在');
+  const { paramKey, label, operator, thresholdValue, urgencyLevel, action, enabled } = req.body;
+  db.prepare(`UPDATE template_warning_params SET param_key=?, label=?, operator=?, threshold_value=?, urgency_level=?, action=?, enabled=? WHERE id=?`)
+    .run(paramKey ?? p.param_key, label ?? p.label, operator ?? p.operator, thresholdValue != null ? String(thresholdValue) : p.threshold_value, urgencyLevel ?? p.urgency_level, action ?? p.action, enabled != null ? (enabled ? 1 : 0) : p.enabled, p.id);
+  res.json({ success: true, message: '已更新' });
+}));
+
+app.delete('/api/template-warning-params/:id', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const p = db.prepare('SELECT * FROM template_warning_params WHERE id = ?').get(req.params.id);
+  if (!p) throw new NotFoundError('参数不存在');
+  db.prepare('DELETE FROM template_warning_params WHERE id = ?').run(p.id);
+  logOperation('删除预警参数', req.user.email, 'template_warning_params', p.id, `模板#${p.template_id}`);
+  res.json({ success: true, message: '已删除' });
+}));
+
+// --- 模板区域变体 + 区域匹配 ---
+app.get('/api/template-variants', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { templateId, region } = req.query;
+  const conds = [], params = [];
+  if (templateId) { conds.push('base_template_id = ?'); params.push(templateId); }
+  if (region) { conds.push('region_code = ?'); params.push(region); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT * FROM template_variants ${where} ORDER BY id`).all(...params);
+  res.json({ data });
+});
+
+app.post('/api/template-variants', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { baseTemplateId, regionCode, name, description, addedFields, addedRules, isSelectable } = req.body;
+  if (!baseTemplateId || !regionCode) throw new ValidationError('基础模板ID与区域编码为必填');
+  const base = db.prepare('SELECT * FROM templates WHERE id = ?').get(baseTemplateId);
+  if (!base) throw new ValidationError('基础模板不存在');
+  const info = db.prepare(`INSERT INTO template_variants (base_template_id, region_code, name, description, added_fields_json, added_rules_json, status, is_selectable, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'published', ?, ?, CURRENT_TIMESTAMP)`)
+    .run(baseTemplateId, regionCode, name || (base.name + '-' + regionCode), description || null, JSON.stringify(addedFields || []), JSON.stringify(addedRules || []), isSelectable != null ? (isSelectable ? 1 : 0) : 1, req.user.email);
+  logOperation('创建区域变体', req.user.email, 'template_variants', info.lastInsertRowid, `模板#${baseTemplateId}@${regionCode}`);
+  res.json({ success: true, id: info.lastInsertRowid, message: '区域变体已创建' });
+}));
+
+app.delete('/api/template-variants/:id', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const v = db.prepare('SELECT * FROM template_variants WHERE id = ?').get(req.params.id);
+  if (!v) throw new NotFoundError('变体不存在');
+  db.prepare('DELETE FROM template_variants WHERE id = ?').run(v.id);
+  logOperation('删除区域变体', req.user.email, 'template_variants', v.id, `模板#${v.base_template_id}@${v.region_code}`);
+  res.json({ success: true, message: '已删除' });
+}));
+
+// 区域匹配：返回某模板在指定区域的有效配置（命中变体则合并增量）
+app.get('/api/templates/:id/match', authMiddleware, (req, res) => {
+  const db = getDb();
+  const tpl = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
+  if (!tpl) throw new NotFoundError('模板不存在');
+  const region = req.query.region || null;
+  const baseFields = db.prepare('SELECT * FROM template_fields WHERE template_id = ? ORDER BY sort_order').all(tpl.id);
+  const baseRules = db.prepare('SELECT * FROM template_rules WHERE template_id = ? ORDER BY priority DESC, id').all(tpl.id);
+  let variant = null, fields = baseFields, rules = baseRules;
+  if (region) {
+    variant = db.prepare('SELECT * FROM template_variants WHERE base_template_id = ? AND region_code = ?').get(tpl.id, region);
+    if (variant) {
+      let af = [], ar = [];
+      try { af = JSON.parse(variant.added_fields_json || '[]'); ar = JSON.parse(variant.added_rules_json || '[]'); } catch (e) {}
+      fields = baseFields.concat(af);
+      rules = baseRules.concat(ar);
+    }
+  }
+  res.json({ template: tpl, region, variantApplied: !!variant, fields, rules });
+});
 
 // ==================== API: 模板规则管理 ====================
 

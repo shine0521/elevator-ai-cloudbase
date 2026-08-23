@@ -1,0 +1,169 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '模板生命周期', crumb: [{label:'模板生命周期'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">模板生命周期</div>
+        <div class="pd">版本快照 / 回滚 · 4 类预警参数 · 区域变体匹配（M1）</div>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h"><div class="ct">选择模板</div></div>
+      <div class="card-b" style="padding:16px">
+        <select class="sel" id="tplSelect" onchange="loadAll()">
+          <option value="">— 请选择 —</option>
+          <% templates.forEach(function(t){ %>
+          <option value="<%= t.id %>"><%= t.id %> · <%= t.name %>（<%= t.category %> v<%= t.version %>）</option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h"><div class="ct">版本历史</div><div class="flex gap-s"><button class="btn btn-p btn-sm" onclick="createSnapshot()">+ 创建快照</button></div></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>版本</th><th>区域</th><th>状态</th><th>生效日</th><th>创建人</th><th>操作</th></tr></thead><tbody id="verBody"><tr><td colspan="6" class="center muted" style="padding:24px">请选择模板</td></tr></tbody></table></div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h"><div class="ct">预警参数（4 类：阈值/时限/状态/趋势）</div></div>
+      <div class="card-b" style="padding:16px">
+        <div class="form-row mb">
+          <select class="sel" id="wpType"><option value="threshold">阈值 threshold</option><option value="deadline">时限 deadline</option><option value="status">状态 status</option><option value="trend">趋势 trend</option></select>
+          <input class="inp" id="wpKey" placeholder="参数键(如 next_inspection_date)">
+          <input class="inp" id="wpLabel" placeholder="说明(如 检验超期)">
+          <select class="sel" id="wpOp"><option value=">">&gt;</option><option value="<">&lt;</option><option value=">=">&ge;</option><option value="<=">&le;</option><option value="==">=</option><option value="!=">!=</option></select>
+          <input class="inp" id="wpVal" placeholder="阈值">
+          <select class="sel" id="wpUrg"><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="urgent">紧急</option><option value="critical">严重</option></select>
+          <button class="btn btn-p btn-sm" onclick="addWp()">+ 添加</button>
+        </div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>类型</th><th>键</th><th>说明</th><th>条件</th><th>级别</th><th>启用</th><th>操作</th></tr></thead><tbody id="wpBody"></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h"><div class="ct">区域变体（regional-matcher）</div></div>
+      <div class="card-b" style="padding:16px">
+        <div class="form-row mb">
+          <input class="inp" id="varRegion" placeholder="区域码(如 BJ)">
+          <input class="inp" id="varName" placeholder="变体名称">
+          <input class="inp" id="varFields" placeholder="新增字段JSON(可选)">
+          <input class="inp" id="varRules" placeholder="新增规则JSON(可选)">
+          <button class="btn btn-p btn-sm" onclick="addVariant()">+ 添加变体</button>
+        </div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>区域</th><th>名称</th><th>状态</th><th>操作</th></tr></thead><tbody id="varBody"></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h"><div class="ct">区域匹配测试</div></div>
+      <div class="card-b" style="padding:16px">
+        <div class="flex gap-s mb">
+          <input class="inp" id="matchRegion" placeholder="区域码(如 BJ)">
+          <button class="btn btn-o btn-sm" onclick="testMatch()">匹配</button>
+          <span class="soft t-xs">不填区域码则匹配全局基础模板</span>
+        </div>
+        <pre id="matchResult" class="muted" style="white-space:pre-wrap;font-size:13px;margin:0">—</pre>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function tag(s,cls){return '<span class="tag '+(cls||'blue')+'">'+esc(s)+'</span>';}
+  function curTpl(){return document.getElementById('tplSelect').value;}
+
+  function loadAll(){ loadVersions(); loadWp(); loadVariants(); }
+
+  function loadVersions(){
+    var id=curTpl(); var b=document.getElementById('verBody');
+    if(!id){b.innerHTML='<tr><td colspan="6" class="center muted" style="padding:24px">请选择模板</td></tr>';return;}
+    b.innerHTML='<tr><td colspan="6" class="center muted" style="padding:24px">加载中…</td></tr>';
+    App.api('/api/templates/'+id+'/versions').then(function(d){
+      var data=d.data||[];
+      if(!data.length){b.innerHTML='<tr><td colspan="6" class="center muted" style="padding:24px">暂无版本，点「创建快照」</td></tr>';return;}
+      b.innerHTML=data.map(function(v){
+        return '<tr><td>v'+esc(v.version)+'</td><td>'+(v.region_code?tag(v.region_code):'<span class="muted">全局</span>')+'</td><td>'+tag(v.status)+'</td><td class="soft">'+esc(v.effective_date||'')+'</td><td class="soft t-xs">'+esc(v.created_by||'')+'</td><td><button class="btn btn-o btn-xs" onclick="restoreVer('+v.id+')">恢复</button></td></tr>';
+      }).join('');
+    }).catch(function(){b.innerHTML='<tr><td colspan="6" class="center" style="padding:24px;color:var(--danger)">加载失败</td></tr>';});
+  }
+
+  window.createSnapshot=function(){
+    var id=curTpl(); if(!id){alert('请先选择模板');return;}
+    App.api('/api/templates/'+id+'/versions',{method:'POST',body:JSON.stringify({})}).then(function(d){
+      if(d.error){alert(d.error);return;} alert(d.message||'已创建'); loadVersions();
+    }).catch(function(){alert('创建失败');});
+  };
+
+  window.restoreVer=function(vid){
+    var id=curTpl();
+    if(!confirm('确认恢复至该版本？将覆盖当前模板字段与规则。'))return;
+    App.api('/api/templates/'+id+'/versions/'+vid+'/restore',{method:'POST',body:'{}'}).then(function(d){
+      if(d.error){alert(d.error);return;} alert(d.message||'已恢复');
+    }).catch(function(){alert('恢复失败');});
+  };
+
+  function loadWp(){
+    var id=curTpl(); var b=document.getElementById('wpBody');
+    if(!id){b.innerHTML='';return;}
+    App.api('/api/template-warning-params?templateId='+id).then(function(d){
+      var data=d.data||[];
+      if(!data.length){b.innerHTML='<tr><td colspan="7" class="center muted" style="padding:16px">暂无预警参数</td></tr>';return;}
+      b.innerHTML=data.map(function(p){
+        return '<tr><td>'+tag(p.param_type)+'</td><td class="soft">'+esc(p.param_key||'')+'</td><td>'+esc(p.label||'')+'</td><td class="soft">'+(esc(p.operator||'')+(p.threshold_value!=null?' '+esc(p.threshold_value):''))+'</td><td>'+tag(p.urgency_level)+'</td><td>'+(p.enabled?'<span class="tag ok">开</span>':'<span class="tag gray">关</span>')+'</td><td><button class="btn btn-o btn-xs" onclick="delWp('+p.id+')">删</button></td></tr>';
+      }).join('');
+    }).catch(function(){b.innerHTML='';});
+  }
+
+  window.addWp=function(){
+    var id=curTpl(); if(!id){alert('请先选择模板');return;}
+    var body={templateId:parseInt(id,10),paramType:document.getElementById('wpType').value,paramKey:document.getElementById('wpKey').value.trim(),label:document.getElementById('wpLabel').value.trim(),operator:document.getElementById('wpOp').value,thresholdValue:document.getElementById('wpVal').value.trim(),urgencyLevel:document.getElementById('wpUrg').value,enabled:1};
+    App.api('/api/template-warning-params',{method:'POST',body:JSON.stringify(body)}).then(function(d){if(d.error){alert(d.error);return;}alert(d.message||'已添加');loadWp();}).catch(function(){alert('添加失败');});
+  };
+
+  window.delWp=function(pid){ if(!confirm('删除该预警参数？'))return; App.api('/api/template-warning-params/'+pid,{method:'DELETE'}).then(function(d){if(d.error){alert(d.error);return;}loadWp();}).catch(function(){alert('删除失败');}); };
+
+  function loadVariants(){
+    var id=curTpl(); var b=document.getElementById('varBody');
+    if(!id){b.innerHTML='';return;}
+    App.api('/api/template-variants?templateId='+id).then(function(d){
+      var data=d.data||[];
+      if(!data.length){b.innerHTML='<tr><td colspan="4" class="center muted" style="padding:16px">暂无区域变体</td></tr>';return;}
+      b.innerHTML=data.map(function(v){
+        return '<tr><td>'+tag(v.region_code)+'</td><td>'+esc(v.name||'')+'</td><td>'+tag(v.status)+'</td><td><button class="btn btn-o btn-xs" onclick="delVariant('+v.id+')">删</button></td></tr>';
+      }).join('');
+    }).catch(function(){b.innerHTML='';});
+  }
+
+  window.addVariant=function(){
+    var id=curTpl(); if(!id){alert('请先选择模板');return;}
+    var fr=document.getElementById('varFields').value.trim(), rr=document.getElementById('varRules').value.trim();
+    var af=[], ar=[];
+    try{ if(fr) af=JSON.parse(fr); if(rr) ar=JSON.parse(rr); }catch(e){ alert('JSON 解析失败：'+e.message); return; }
+    var body={baseTemplateId:parseInt(id,10),regionCode:document.getElementById('varRegion').value.trim(),name:document.getElementById('varName').value.trim(),addedFields:af,addedRules:ar};
+    if(!body.regionCode){alert('请填写区域码');return;}
+    App.api('/api/template-variants',{method:'POST',body:JSON.stringify(body)}).then(function(d){if(d.error){alert(d.error);return;}alert(d.message||'已添加');loadVariants();}).catch(function(){alert('添加失败');});
+  };
+
+  window.delVariant=function(vid){ if(!confirm('删除该区域变体？'))return; App.api('/api/template-variants/'+vid,{method:'DELETE'}).then(function(d){if(d.error){alert(d.error);return;}loadVariants();}).catch(function(){alert('删除失败');}); };
+
+  window.testMatch=function(){
+    var id=curTpl(); if(!id){alert('请先选择模板');return;}
+    var region=document.getElementById('matchRegion').value.trim();
+    App.api('/api/templates/'+id+'/match'+(region?'?region='+encodeURIComponent(region):'')).then(function(d){
+      document.getElementById('matchResult').textContent=JSON.stringify({template:d.template.name,region:d.region,variantApplied:d.variantApplied,fields:d.fields.length,rules:d.rules.length},null,2);
+    }).catch(function(){document.getElementById('matchResult').textContent='匹配失败';});
+  };
+
+  loadAll();
+})();
+</script>
+<%- include('partials/foot') %>

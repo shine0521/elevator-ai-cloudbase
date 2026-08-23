@@ -428,6 +428,60 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_aw_biz ON approval_workflow(business_type, business_id);
     CREATE INDEX IF NOT EXISTS idx_aw_status ON approval_workflow(status);
     CREATE INDEX IF NOT EXISTS idx_an_approval ON approval_node(approval_id);
+
+    -- ==================== M1 模板全生命周期（2.0 新增，叠加于 templates） ====================
+    -- 模板版本快照（取代单表 version 字段，支持历史/回滚/区域）
+    CREATE TABLE IF NOT EXISTS template_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      name TEXT,
+      category TEXT,
+      description TEXT,
+      region_code TEXT,
+      status TEXT DEFAULT 'published',
+      is_selectable INTEGER DEFAULT 1,
+      effective_date DATE,
+      previous_version_id INTEGER,
+      fields_json TEXT,
+      rules_json TEXT,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 模板预警参数（4 类：threshold/deadline/status/trend）
+    CREATE TABLE IF NOT EXISTS template_warning_params (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+      param_type TEXT NOT NULL CHECK(param_type IN ('threshold','deadline','status','trend')),
+      param_key TEXT,
+      label TEXT,
+      operator TEXT,
+      threshold_value TEXT,
+      urgency_level TEXT DEFAULT 'medium' CHECK(urgency_level IN ('low','medium','high','urgent','critical')),
+      action TEXT DEFAULT 'notify',
+      enabled INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 模板区域变体（regional-matcher：global→regional→subsidiary→project）
+    CREATE TABLE IF NOT EXISTS template_variants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      base_template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+      region_code TEXT NOT NULL,
+      name TEXT,
+      description TEXT,
+      added_fields_json TEXT,
+      added_rules_json TEXT,
+      status TEXT DEFAULT 'published',
+      is_selectable INTEGER DEFAULT 1,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tv_template ON template_versions(template_id);
+    CREATE INDEX IF NOT EXISTS idx_twp_template ON template_warning_params(template_id);
+    CREATE INDEX IF NOT EXISTS idx_tvar_base_region ON template_variants(base_template_id, region_code);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段（SQLite不支持IF NOT EXISTS，需try-catch）
