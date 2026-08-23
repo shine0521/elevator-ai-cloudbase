@@ -697,6 +697,16 @@ app.get('/templates', pageAuth, (req, res) => {
   res.render('templates', { title: '模板管理', user: req.user, templates });
 });
 
+// 设备管理（F0 设备实体层）
+app.get('/devices', pageAuth, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT status, COUNT(*) as c FROM elevator_device GROUP BY status`).all();
+  const byStatus = { NORMAL: 0, ATTENTION: 0, WARNING: 0, REPAIR: 0, SCRAPPED: 0 };
+  stats.forEach(s => { byStatus[s.status] = s.c; });
+  const total = db.prepare('SELECT COUNT(*) as c FROM elevator_device').get().c;
+  res.render('devices', { title: '设备管理', user: req.user, stats: byStatus, total });
+});
+
 // 知识库
 app.get('/knowledge', pageAuth, (req, res) => {
   const db = getDb();
@@ -1179,6 +1189,97 @@ app.delete('/api/templates/:id', authMiddleware, roleMiddleware('admin'), asyncH
     after: null
   });
   res.json({ success: true, message: '模板已删除' });
+}));
+
+// ==================== API: 设备管理（F0 设备实体层） ====================
+
+app.get('/api/devices', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, deviceType, region, search } = req.query;
+  const paging = parsePaging(req.query);
+  const conditions = [];
+  const params = [];
+  if (status) { conditions.push('status = ?'); params.push(status); }
+  if (deviceType) { conditions.push('device_type = ?'); params.push(deviceType); }
+  if (region) { conditions.push('region_code = ?'); params.push(region); }
+  if (search) {
+    conditions.push('(device_code LIKE ? OR device_name LIKE ? OR registration_code LIKE ? OR location LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as count FROM elevator_device ${where}`).get(...params).count;
+  const out = pagedResult(paging, total, (limit, offset) =>
+    db.prepare(`SELECT * FROM elevator_device ${where} ORDER BY id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset)
+  );
+  out.data = dt.attachIsoAll(out.data, ['created_at', 'updated_at', 'manufacture_date', 'install_date', 'last_inspection_date', 'next_inspection_date', 'evaluate_date']);
+  res.json(out);
+});
+
+app.get('/api/devices/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`SELECT status, COUNT(*) as c FROM elevator_device GROUP BY status`).all();
+  const byStatus = { NORMAL: 0, ATTENTION: 0, WARNING: 0, REPAIR: 0, SCRAPPED: 0 };
+  rows.forEach(r => { byStatus[r.status] = r.c; });
+  const total = db.prepare('SELECT COUNT(*) as c FROM elevator_device').get().c;
+  res.json({ total, byStatus });
+});
+
+app.get('/api/devices/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(req.params.id);
+  if (!device) throw new NotFoundError('设备不存在');
+  const dynamics = db.prepare('SELECT * FROM device_dynamic_record WHERE device_id = ? ORDER BY id DESC LIMIT 20').all(req.params.id);
+  res.json({ ...device, dynamics });
+});
+
+app.post('/api/devices', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { deviceCode, deviceName, deviceType, registrationCode, brand, model, manufactureDate, installDate, location, regionCode, orgId, projectId, owner, maintenanceUnit, status, riskLevel, lastInspectionDate, nextInspectionDate, evaluateDate } = req.body;
+  if (!deviceCode || !deviceName || !deviceType) throw new ValidationError('设备编号、名称、类型为必填');
+  const id = db.prepare(`
+    INSERT INTO elevator_device (device_code, device_name, device_type, registration_code, brand, model, manufacture_date, install_date, location, region_code, org_id, project_id, owner, maintenance_unit, status, risk_level, last_inspection_date, next_inspection_date, evaluate_date, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    deviceCode, deviceName, deviceType, registrationCode || null, brand || null, model || null,
+    manufactureDate || null, installDate || null, location || null, regionCode || null,
+    orgId || null, projectId || null, owner || null, maintenanceUnit || null,
+    status || 'NORMAL', riskLevel || 'general',
+    lastInspectionDate || null, nextInspectionDate || null, evaluateDate || null, req.user.email
+  ).lastInsertRowid;
+  logOperation('创建设备', req.user.email, 'elevator_device', id, `创建设备: ${deviceName}(${deviceCode})`);
+  res.json({ success: true, id, message: '设备创建成功' });
+}));
+
+app.put('/api/devices/:id', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(req.params.id);
+  if (!existing) throw new NotFoundError('设备不存在');
+  const { deviceCode, deviceName, deviceType, registrationCode, brand, model, manufactureDate, installDate, location, regionCode, orgId, projectId, owner, maintenanceUnit, status, riskLevel, lastInspectionDate, nextInspectionDate, evaluateDate } = req.body;
+  if (!deviceCode || !deviceName || !deviceType) throw new ValidationError('设备编号、名称、类型为必填');
+  db.prepare(`
+    UPDATE elevator_device SET
+      device_code = ?, device_name = ?, device_type = ?, registration_code = ?, brand = ?, model = ?,
+      manufacture_date = ?, install_date = ?, location = ?, region_code = ?, org_id = ?, project_id = ?,
+      owner = ?, maintenance_unit = ?, status = ?, risk_level = ?, last_inspection_date = ?, next_inspection_date = ?, evaluate_date = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(
+    deviceCode, deviceName, deviceType, registrationCode || null, brand || null, model || null,
+    manufactureDate || null, installDate || null, location || null, regionCode || null,
+    orgId || null, projectId || null, owner || null, maintenanceUnit || null,
+    status || 'NORMAL', riskLevel || 'general',
+    lastInspectionDate || null, nextInspectionDate || null, evaluateDate || null, req.params.id
+  );
+  logOperation('更新设备', req.user.email, 'elevator_device', req.params.id, `更新设备: ${deviceName}(${deviceCode})`, { before: existing, after: db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(req.params.id) });
+  res.json({ success: true, message: '设备更新成功' });
+}));
+
+app.delete('/api/devices/:id', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(req.params.id);
+  if (!existing) throw new NotFoundError('设备不存在');
+  db.prepare('DELETE FROM elevator_device WHERE id = ?').run(req.params.id);
+  logOperation('删除设备', req.user.email, 'elevator_device', req.params.id, `删除设备: ${existing.device_name}(${existing.device_code})`, { before: existing, after: null });
+  res.json({ success: true, message: '设备已删除' });
 }));
 
 // ==================== API: 模板规则管理 ====================

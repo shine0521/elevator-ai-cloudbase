@@ -345,6 +345,52 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_worm_end_log ON worm_storage_index(end_log_id);
     CREATE INDEX IF NOT EXISTS idx_worm_seal_time ON worm_storage_index(seal_time DESC);
     CREATE INDEX IF NOT EXISTS idx_worm_status ON worm_storage_index(status);
+
+    -- ==================== F0 设备实体层（2.0 新增） ====================
+    -- 电梯设备主表（V2.1 第13章 elevator_device，全系统挂载点）
+    CREATE TABLE IF NOT EXISTS elevator_device (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_code TEXT UNIQUE NOT NULL,
+      device_name TEXT NOT NULL,
+      device_type TEXT NOT NULL CHECK(device_type IN ('曳引电梯','液压电梯','自动扶梯','自动人行道','杂物电梯','其他')),
+      registration_code TEXT,
+      brand TEXT,
+      model TEXT,
+      manufacture_date DATE,
+      install_date DATE,
+      location TEXT,
+      region_code TEXT,
+      org_id INTEGER,
+      project_id INTEGER,
+      owner TEXT,
+      maintenance_unit TEXT,
+      status TEXT DEFAULT 'NORMAL' CHECK(status IN ('NORMAL','ATTENTION','WARNING','REPAIR','SCRAPPED')),
+      risk_level TEXT DEFAULT 'general' CHECK(risk_level IN ('general','major','critical')),
+      last_inspection_date DATE,
+      next_inspection_date DATE,
+      evaluate_date DATE,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 设备动态记录表（V2.1 device_dynamic_record；后续由日管控/维保/预警写入）
+    CREATE TABLE IF NOT EXISTS device_dynamic_record (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL REFERENCES elevator_device(id) ON DELETE CASCADE,
+      record_type TEXT NOT NULL,
+      title TEXT,
+      content TEXT,
+      operator TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_device_code ON elevator_device(device_code);
+    CREATE INDEX IF NOT EXISTS idx_device_status ON elevator_device(status);
+    CREATE INDEX IF NOT EXISTS idx_device_type ON elevator_device(device_type);
+    CREATE INDEX IF NOT EXISTS idx_device_region ON elevator_device(region_code);
+    CREATE INDEX IF NOT EXISTS idx_device_org ON elevator_device(org_id);
+    CREATE INDEX IF NOT EXISTS idx_device_dynamic_device ON device_dynamic_record(device_id);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段（SQLite不支持IF NOT EXISTS，需try-catch）

@@ -1,0 +1,313 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '设备管理', crumb: [{label:'设备管理'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">设备管理</div>
+        <div class="pd">电梯设备主数据 · 台账 · 状态与风险分级</div>
+      </div>
+      <div class="flex gap-s">
+        <% if (user && user.role === 'admin') { %>
+        <button class="btn btn-p" onclick="showCreateModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          新建设备
+        </button>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="stats mb">
+      <div class="stat tone-green"><div class="sv" id="statTotal">0</div><div class="sl">设备总数</div></div>
+      <div class="stat tone-blue"><div class="sv ok" id="statNormal">0</div><div class="sl">正常</div></div>
+      <div class="stat tone-amber"><div class="sv mb" id="statAttention">0</div><div class="sl">需关注</div></div>
+      <div class="stat tone-red"><div class="sv danger" id="statWarning">0</div><div class="sl">预警</div></div>
+      <div class="stat tone-purple"><div class="sv gray" id="statScrapped">0</div><div class="sl">已报废</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <div class="ct"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>设备台账</div>
+        <div class="flex gap-s wrap">
+          <input class="inp" id="searchInput" placeholder="搜索编号/名称/登记证/地点" onkeyup="if(event.key==='Enter')loadDevices()">
+          <select class="sel" id="statusFilter" onchange="loadDevices()">
+            <option value="">全部状态</option>
+            <option value="NORMAL">正常</option>
+            <option value="ATTENTION">需关注</option>
+            <option value="WARNING">预警</option>
+            <option value="REPAIR">维修中</option>
+            <option value="SCRAPPED">已报废</option>
+          </select>
+          <button class="btn btn-o btn-sm" onclick="loadDevices()">查询</button>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th style="width:50px">ID</th>
+              <th style="width:120px">设备编号</th>
+              <th>名称</th>
+              <th style="width:100px">类型</th>
+              <th style="width:80px">状态</th>
+              <th style="width:80px">风险</th>
+              <th style="width:110px">区域</th>
+              <th style="width:140px">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="8" class="center muted" style="padding:40px">加载中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<!-- 编辑/新建设备弹窗 -->
+<div class="overlay" id="editModal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-h">
+      <span class="mt" id="modalTitle">编辑设备</span>
+      <button class="x" onclick="App.closeModal('editModal')">✕</button>
+    </div>
+    <div class="modal-b">
+      <input type="hidden" id="editId">
+      <div class="form-row">
+        <div class="field">
+          <label>设备编号 <span style="color:var(--danger)">*</span></label>
+          <input class="inp" id="editDeviceCode" type="text" placeholder="如 DT-BJ-CC-007">
+        </div>
+        <div class="field">
+          <label>设备名称 <span style="color:var(--danger)">*</span></label>
+          <input class="inp" id="editDeviceName" type="text" placeholder="如 1号楼客梯">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>设备类型 <span style="color:var(--danger)">*</span></label>
+          <select class="sel" id="editDeviceType">
+            <option value="曳引电梯">曳引电梯</option>
+            <option value="液压电梯">液压电梯</option>
+            <option value="自动扶梯">自动扶梯</option>
+            <option value="自动人行道">自动人行道</option>
+            <option value="杂物电梯">杂物电梯</option>
+            <option value="其他">其他</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>使用登记证号</label>
+          <input class="inp" id="editRegistrationCode" type="text">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>品牌</label><input class="inp" id="editBrand" type="text"></div>
+        <div class="field"><label>型号</label><input class="inp" id="editModel" type="text"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>制造日期</label><input class="inp" id="editManufactureDate" type="date"></div>
+        <div class="field"><label>安装日期</label><input class="inp" id="editInstallDate" type="date"></div>
+      </div>
+      <div class="field"><label>安装地点</label><input class="inp" id="editLocation" type="text" placeholder="如 北京市朝阳区XX大厦"></div>
+      <div class="form-row">
+        <div class="field"><label>区域码</label><input class="inp" id="editRegionCode" type="text" placeholder="如 BJ"></div>
+        <div class="field"><label>使用单位/产权方</label><input class="inp" id="editOwner" type="text"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>维保单位</label><input class="inp" id="editMaintenanceUnit" type="text"></div>
+        <div class="field"><label>项目/组织 ID</label><input class="inp" id="editProjectId" type="number" placeholder="选填"></div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>状态</label>
+          <select class="sel" id="editStatus">
+            <option value="NORMAL">正常</option>
+            <option value="ATTENTION">需关注</option>
+            <option value="WARNING">预警</option>
+            <option value="REPAIR">维修中</option>
+            <option value="SCRAPPED">已报废</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>风险等级</label>
+          <select class="sel" id="editRiskLevel">
+            <option value="general">一般</option>
+            <option value="major">较大</option>
+            <option value="critical">重大</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>上次检验日期</label><input class="inp" id="editLastInspectionDate" type="date"></div>
+        <div class="field"><label>下次检验日期</label><input class="inp" id="editNextInspectionDate" type="date"></div>
+      </div>
+      <div class="field"><label>评估日期</label><input class="inp" id="editEvaluateDate" type="date"></div>
+    </div>
+    <div class="modal-f">
+      <button class="btn btn-ghost btn-sm" onclick="App.closeModal('editModal')">取消</button>
+      <button class="btn btn-p btn-sm" onclick="saveDevice()">保存设备</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function statusTag(s){var m={NORMAL:['ok','正常'],ATTENTION:['mb','需关注'],WARNING:['danger','预警'],REPAIR:['mb','维修中'],SCRAPPED:['gray','已报废']};var v=m[s]||['gray',esc(s)];return '<span class="tag '+v[0]+'">'+v[1]+'</span>';}
+  function riskTag(r){var m={general:['blue','一般'],major:['mb','较大'],critical:['danger','重大']};var v=m[r]||['blue',esc(r)];return '<span class="tag '+v[0]+'">'+v[1]+'</span>';}
+  function dateStr(v){return v?String(v).toString().slice(0,10):'';}
+
+  window.__isAdmin = <%= (user && user.role === 'admin') ? 'true' : 'false' %>;
+
+  function loadStats(){
+    App.api('/api/devices/stats').then(function(d){
+      document.getElementById('statTotal').textContent=d.total||0;
+      document.getElementById('statNormal').textContent=(d.byStatus&&d.byStatus.NORMAL)||0;
+      document.getElementById('statAttention').textContent=(d.byStatus&&d.byStatus.ATTENTION)||0;
+      document.getElementById('statWarning').textContent=(d.byStatus&&d.byStatus.WARNING)||0;
+      document.getElementById('statScrapped').textContent=(d.byStatus&&d.byStatus.SCRAPPED)||0;
+    }).catch(function(){});
+  }
+
+  function loadDevices(){
+    var tbody=document.getElementById('tableBody');
+    tbody.innerHTML='<tr><td colspan="8" class="center muted" style="padding:40px">加载中…</td></tr>';
+    var q=[];
+    var s=document.getElementById('searchInput').value.trim();
+    var st=document.getElementById('statusFilter').value;
+    if(s)q.push('search='+encodeURIComponent(s));
+    if(st)q.push('status='+encodeURIComponent(st));
+    App.api('/api/devices'+(q.length?'?'+q.join('&'):'')).then(function(d){
+      var data=d.data||[];
+      if(data.length===0){tbody.innerHTML='<tr><td colspan="8" class="center muted" style="padding:40px">暂无设备</td></tr>';return;}
+      tbody.innerHTML=data.map(function(t){
+        return '<tr>'+
+               '<td><span style="color:var(--primary);font-weight:600">#'+t.id+'</span></td>'+
+               '<td><span class="mono t-xs">'+esc(t.device_code||'')+'</span></td>'+
+               '<td class="cell-main">'+esc(t.device_name||'')+'</td>'+
+               '<td><span class="tag blue">'+esc(t.device_type||'')+'</span></td>'+
+               '<td>'+statusTag(t.status)+'</td>'+
+               '<td>'+riskTag(t.risk_level)+'</td>'+
+               '<td class="soft t-xs">'+esc(t.region_code||'')+'</td>'+
+               '<td><div class="flex gap-s">'+
+               '<button class="btn btn-o btn-xs" onclick="viewDevice('+t.id+')">详情</button>'+
+               (window.__isAdmin?'<button class="btn btn-o btn-xs" onclick="editDevice('+t.id+')">编辑</button><button class="btn btn-o btn-xs" onclick="deleteDevice('+t.id+')">删除</button>':'')+
+               '</div></td></tr>';
+      }).join('');
+    }).catch(function(){tbody.innerHTML='<tr><td colspan="8" class="center" style="padding:40px;color:var(--danger)">加载失败</td></tr>';});
+  }
+
+  window.showCreateModal=function(){
+    document.getElementById('modalTitle').textContent='新建设备';
+    ['editId','editDeviceCode','editDeviceName','editRegistrationCode','editBrand','editModel','editManufactureDate','editInstallDate','editLocation','editRegionCode','editOwner','editMaintenanceUnit','editProjectId','editLastInspectionDate','editNextInspectionDate','editEvaluateDate'].forEach(function(id){document.getElementById(id).value='';});
+    document.getElementById('editDeviceType').value='曳引电梯';
+    document.getElementById('editStatus').value='NORMAL';
+    document.getElementById('editRiskLevel').value='general';
+    App.openModal('editModal');
+  };
+
+  window.editDevice=function(id){
+    App.api('/api/devices/'+id).then(function(d){
+      document.getElementById('modalTitle').textContent='编辑设备';
+      document.getElementById('editId').value=d.id;
+      document.getElementById('editDeviceCode').value=d.device_code||'';
+      document.getElementById('editDeviceName').value=d.device_name||'';
+      document.getElementById('editDeviceType').value=d.device_type||'曳引电梯';
+      document.getElementById('editRegistrationCode').value=d.registration_code||'';
+      document.getElementById('editBrand').value=d.brand||'';
+      document.getElementById('editModel').value=d.model||'';
+      document.getElementById('editManufactureDate').value=dateStr(d.manufacture_date);
+      document.getElementById('editInstallDate').value=dateStr(d.install_date);
+      document.getElementById('editLocation').value=d.location||'';
+      document.getElementById('editRegionCode').value=d.region_code||'';
+      document.getElementById('editOwner').value=d.owner||'';
+      document.getElementById('editMaintenanceUnit').value=d.maintenance_unit||'';
+      document.getElementById('editProjectId').value=d.project_id||'';
+      document.getElementById('editStatus').value=d.status||'NORMAL';
+      document.getElementById('editRiskLevel').value=d.risk_level||'general';
+      document.getElementById('editLastInspectionDate').value=dateStr(d.last_inspection_date);
+      document.getElementById('editNextInspectionDate').value=dateStr(d.next_inspection_date);
+      document.getElementById('editEvaluateDate').value=dateStr(d.evaluate_date);
+      App.openModal('editModal');
+    });
+  };
+
+  window.viewDevice=function(id){
+    App.api('/api/devices/'+id).then(function(d){
+      var dyn=(d.dynamics||[]).map(function(x){
+        return '<div class="kv mb-s"><span class="k">'+esc(x.record_type)+'</span><span class="v">'+esc(x.title||'')+'</span><span class="soft t-xs">'+dateStr(x.created_at)+'</span></div>';
+      }).join('')||'<div class="muted">暂无动态记录</div>';
+      var modal=document.createElement('div');
+      modal.className='overlay show';
+      document.body.style.overflow='hidden';
+      modal.innerHTML='<div class="modal" style="max-width:640px"><div class="modal-h"><span class="mt">设备详情 · '+esc(d.device_name||'')+'</span><button class="x" onclick="this.closest(\'.overlay\').remove();document.body.style.overflow=\'\';">✕</button></div>'+
+        '<div class="modal-b"><div class="kv mb">'+
+        '<span class="k">编号</span><span class="v mono">'+esc(d.device_code||'')+'</span>'+
+        '<span class="k">名称</span><span class="v">'+esc(d.device_name||'')+'</span>'+
+        '<span class="k">类型</span><span class="v">'+esc(d.device_type||'')+'</span>'+
+        '<span class="k">登记证号</span><span class="v">'+esc(d.registration_code||'')+'</span>'+
+        '<span class="k">品牌/型号</span><span class="v">'+esc(d.brand||'')+' / '+esc(d.model||'')+'</span>'+
+        '<span class="k">安装地点</span><span class="v">'+esc(d.location||'')+'</span>'+
+        '<span class="k">区域码</span><span class="v">'+esc(d.region_code||'')+'</span>'+
+        '<span class="k">使用单位</span><span class="v">'+esc(d.owner||'')+'</span>'+
+        '<span class="k">维保单位</span><span class="v">'+esc(d.maintenance_unit||'')+'</span>'+
+        '<span class="k">状态</span><span class="v">'+statusTag(d.status)+'</span>'+
+        '<span class="k">风险等级</span><span class="v">'+riskTag(d.risk_level)+'</span>'+
+        '<span class="k">下次检验</span><span class="v">'+dateStr(d.next_inspection_date)+'</span>'+
+        '</div>'+
+        '<div class="mb-s" style="font-size:14px;font-weight:700">动态记录</div>'+dyn+'</div></div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click',function(e){if(e.target===modal){modal.remove();document.body.style.overflow='';}});
+    });
+  };
+
+  window.saveDevice=function(){
+    var id=document.getElementById('editId').value;
+    var deviceCode=document.getElementById('editDeviceCode').value.trim();
+    var deviceName=document.getElementById('editDeviceName').value.trim();
+    var deviceType=document.getElementById('editDeviceType').value;
+    if(!deviceCode||!deviceName){alert('设备编号和名称为必填');return;}
+    var p={
+      deviceCode:deviceCode,deviceName:deviceName,deviceType:deviceType,
+      registrationCode:document.getElementById('editRegistrationCode').value.trim(),
+      brand:document.getElementById('editBrand').value.trim(),
+      model:document.getElementById('editModel').value.trim(),
+      manufactureDate:document.getElementById('editManufactureDate').value||null,
+      installDate:document.getElementById('editInstallDate').value||null,
+      location:document.getElementById('editLocation').value.trim(),
+      regionCode:document.getElementById('editRegionCode').value.trim(),
+      orgId:null,
+      projectId:document.getElementById('editProjectId').value||null,
+      owner:document.getElementById('editOwner').value.trim(),
+      maintenanceUnit:document.getElementById('editMaintenanceUnit').value.trim(),
+      status:document.getElementById('editStatus').value,
+      riskLevel:document.getElementById('editRiskLevel').value,
+      lastInspectionDate:document.getElementById('editLastInspectionDate').value||null,
+      nextInspectionDate:document.getElementById('editNextInspectionDate').value||null,
+      evaluateDate:document.getElementById('editEvaluateDate').value||null
+    };
+    var method=id?'PUT':'POST';
+    var url=id?'/api/devices/'+id:'/api/devices';
+    App.api(url,{method:method,body:JSON.stringify(p)}).then(function(d){
+      if(d.error){alert(d.error);return;}
+      alert(d.message||'保存成功');
+      App.closeModal('editModal');
+      loadDevices();loadStats();
+    }).catch(function(){alert('保存失败');});
+  };
+
+  window.deleteDevice=function(id){
+    if(!confirm('确定删除该设备吗？关联动态记录也会一并删除。'))return;
+    App.api('/api/devices/'+id,{method:'DELETE'}).then(function(d){alert(d.message||'删除成功');loadDevices();loadStats();}).catch(function(){alert('删除失败');});
+  };
+
+  loadStats();
+  loadDevices();
+})();
+</script>
+<%- include('partials/foot') %>
