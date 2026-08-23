@@ -707,6 +707,16 @@ app.get('/devices', pageAuth, (req, res) => {
   res.render('devices', { title: '设备管理', user: req.user, stats: byStatus, total });
 });
 
+// 通用审批中枢（M0 业务流挂载点）
+app.get('/approvals', pageAuth, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT status, COUNT(*) as c FROM approval_workflow GROUP BY status`).all();
+  const byStatus = { PENDING: 0, APPROVED: 0, REJECTED: 0, RECALLED: 0, CANCELLED: 0 };
+  stats.forEach(s => { byStatus[s.status] = s.c; });
+  const total = db.prepare('SELECT COUNT(*) as c FROM approval_workflow').get().c;
+  res.render('approvals', { title: '审批中心', user: req.user, stats: byStatus, total });
+});
+
 // 知识库
 app.get('/knowledge', pageAuth, (req, res) => {
   const db = getDb();
@@ -1280,6 +1290,120 @@ app.delete('/api/devices/:id', authMiddleware, roleMiddleware('admin'), asyncHan
   db.prepare('DELETE FROM elevator_device WHERE id = ?').run(req.params.id);
   logOperation('删除设备', req.user.email, 'elevator_device', req.params.id, `删除设备: ${existing.device_name}(${existing.device_code})`, { before: existing, after: null });
   res.json({ success: true, message: '设备已删除' });
+}));
+
+// ==================== API: 通用审批中枢 M0 ====================
+
+app.get('/api/approvals', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { businessType, status } = req.query;
+  const paging = parsePaging(req.query);
+  const conditions = [];
+  const params = [];
+  if (businessType) { conditions.push('business_type = ?'); params.push(businessType); }
+  if (status) { conditions.push('status = ?'); params.push(status); }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as count FROM approval_workflow ${where}`).get(...params).count;
+  const out = pagedResult(paging, total, (limit, offset) =>
+    db.prepare(`SELECT * FROM approval_workflow ${where} ORDER BY id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset)
+  );
+  out.data = dt.attachIsoAll(out.data, ['created_at', 'completed_at']);
+  res.json(out);
+});
+
+app.get('/api/approvals/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`SELECT status, COUNT(*) as c FROM approval_workflow GROUP BY status`).all();
+  const byStatus = { PENDING: 0, APPROVED: 0, REJECTED: 0, RECALLED: 0, CANCELLED: 0 };
+  rows.forEach(r => { byStatus[r.status] = r.c; });
+  const total = db.prepare('SELECT COUNT(*) as c FROM approval_workflow').get().c;
+  res.json({ total, byStatus });
+});
+
+app.get('/api/approvals/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  const nodes = db.prepare('SELECT * FROM approval_node WHERE approval_id = ? ORDER BY node_seq').all(req.params.id);
+  res.json({ ...aw, nodes });
+});
+
+app.post('/api/approvals', authMiddleware, roleMiddleware('admin'), asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { businessType, businessId, businessTitle, dualReview, nodes } = req.body;
+  if (!businessType || businessId == null) throw new ValidationError('业务类型与业务ID为必填');
+  if (!Array.isArray(nodes) || nodes.length === 0) throw new ValidationError('审批节点不能为空');
+  const info = db.prepare(`INSERT INTO approval_workflow (business_type, business_id, business_title, status, current_node, dual_review, created_by) VALUES (?, ?, ?, 'PENDING', 1, ?, ?)`)
+    .run(businessType, businessId, businessTitle || null, dualReview ? 1 : 0, req.user.email);
+  const awId = info.lastInsertRowid;
+  const insertNode = db.prepare(`INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, approver_id) VALUES (?, ?, ?, ?, ?)`);
+  nodes.forEach((n, i) => insertNode.run(awId, i + 1, n.nodeName || ('节点' + (i + 1)), n.approverRole || null, n.approverId || null));
+  logOperation('提交审批', req.user.email, 'approval_workflow', awId, `提交审批: ${businessType}#${businessId} (${nodes.length}节点)`);
+  res.json({ success: true, id: awId, message: '审批单创建成功' });
+}));
+
+function canActOnNode(user, node) {
+  if (user.role === 'admin' || user.role === 'auditor') return true;
+  if (node.approver_id && node.approver_id === user.id) return true;
+  return false;
+}
+
+app.post('/api/approvals/:id/nodes/:nodeSeq/approve', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  if (aw.status !== 'PENDING') throw new ValidationError('该审批单已结束，无法操作');
+  const seq = parseInt(req.params.nodeSeq, 10);
+  if (seq !== aw.current_node) throw new ValidationError('只能处理当前待办节点');
+  const node = db.prepare('SELECT * FROM approval_node WHERE approval_id = ? AND node_seq = ?').get(req.params.id, seq);
+  if (!node || node.status !== 'PENDING') throw new ValidationError('节点状态异常');
+  if (!canActOnNode(req.user, node)) throw new ForbiddenError('无审批权限');
+  const { comment, aiComparisonSummary, aiConfidence } = req.body;
+  const totalNodes = db.prepare('SELECT COUNT(*) as c FROM approval_node WHERE approval_id = ?').get(req.params.id).c;
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE approval_node SET status='APPROVED', approver_email=?, approval_result=?, comment=?, ai_comparison_summary=?, ai_confidence=?, decided_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .run(req.user.email, comment || '通过', comment || null, aiComparisonSummary || null, aiConfidence != null ? aiConfidence : null, node.id);
+    if (seq < totalNodes) {
+      db.prepare('UPDATE approval_workflow SET current_node = ? WHERE id = ?').run(seq + 1, req.params.id);
+    } else {
+      db.prepare(`UPDATE approval_workflow SET status='APPROVED', completed_at=CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
+    }
+  });
+  tx();
+  logOperation('审批通过', req.user.email, 'approval_workflow', req.params.id, `节点${seq}通过`);
+  res.json({ success: true, message: '已通过' });
+}));
+
+app.post('/api/approvals/:id/nodes/:nodeSeq/reject', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  if (aw.status !== 'PENDING') throw new ValidationError('该审批单已结束，无法操作');
+  const seq = parseInt(req.params.nodeSeq, 10);
+  if (seq !== aw.current_node) throw new ValidationError('只能处理当前待办节点');
+  const node = db.prepare('SELECT * FROM approval_node WHERE approval_id = ? AND node_seq = ?').get(req.params.id, seq);
+  if (!node || node.status !== 'PENDING') throw new ValidationError('节点状态异常');
+  if (!canActOnNode(req.user, node)) throw new ForbiddenError('无审批权限');
+  const { comment } = req.body;
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE approval_node SET status='REJECTED', approver_email=?, comment=?, decided_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .run(req.user.email, comment || '不通过', node.id);
+    db.prepare(`UPDATE approval_workflow SET status='REJECTED', completed_at=CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
+  });
+  tx();
+  logOperation('审批驳回', req.user.email, 'approval_workflow', req.params.id, `节点${seq}驳回`);
+  res.json({ success: true, message: '已驳回' });
+}));
+
+app.post('/api/approvals/:id/recall', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  if (aw.status !== 'PENDING') throw new ValidationError('该审批单已结束，无法撤回');
+  if (req.user.role !== 'admin' && aw.created_by !== req.user.email) throw new ForbiddenError('仅创建人或管理员可撤回');
+  db.prepare(`UPDATE approval_workflow SET status='RECALLED', completed_at=CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
+  logOperation('撤回审批', req.user.email, 'approval_workflow', req.params.id, `撤回审批单#${req.params.id}`);
+  res.json({ success: true, message: '已撤回' });
 }));
 
 // ==================== API: 模板规则管理 ====================

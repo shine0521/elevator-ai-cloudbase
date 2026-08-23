@@ -391,6 +391,43 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_device_region ON elevator_device(region_code);
     CREATE INDEX IF NOT EXISTS idx_device_org ON elevator_device(org_id);
     CREATE INDEX IF NOT EXISTS idx_device_dynamic_device ON device_dynamic_record(device_id);
+
+    -- ==================== M0 通用审批中枢（2.0 新增，业务流挂载点） ====================
+    -- 审批单主表：business_type+business_id 关联任意业务记录，节点序列驱动审批流
+    CREATE TABLE IF NOT EXISTS approval_workflow (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_type TEXT NOT NULL,
+      business_id INTEGER NOT NULL,
+      business_title TEXT,
+      status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING','APPROVED','REJECTED','RECALLED','CANCELLED')),
+      current_node INTEGER DEFAULT 1,
+      dual_review INTEGER DEFAULT 0,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
+    );
+
+    -- 审批节点表：每个节点记录审批人/结果/AI比对摘要/置信度（R2 零错误容忍）
+    CREATE TABLE IF NOT EXISTS approval_node (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      approval_id INTEGER NOT NULL REFERENCES approval_workflow(id) ON DELETE CASCADE,
+      node_seq INTEGER NOT NULL,
+      node_name TEXT NOT NULL,
+      approver_role TEXT,
+      approver_id INTEGER,
+      approver_email TEXT,
+      status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING','APPROVED','REJECTED','SKIPPED')),
+      approval_result TEXT,
+      comment TEXT,
+      ai_comparison_summary TEXT,
+      ai_confidence REAL,
+      decided_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_aw_biz ON approval_workflow(business_type, business_id);
+    CREATE INDEX IF NOT EXISTS idx_aw_status ON approval_workflow(status);
+    CREATE INDEX IF NOT EXISTS idx_an_approval ON approval_node(approval_id);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段（SQLite不支持IF NOT EXISTS，需try-catch）

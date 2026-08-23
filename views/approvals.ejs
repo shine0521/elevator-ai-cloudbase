@@ -1,0 +1,196 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '审批中心', crumb: [{label:'审批中心'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">审批中心</div>
+        <div class="pd">通用审批中枢 · 业务流挂载点 · 提交 / 审核 / 驳回 / 撤回</div>
+      </div>
+      <div class="flex gap-s">
+        <% if (user && user.role === 'admin') { %>
+        <button class="btn btn-p" onclick="showCreateModal()">+ 新建审批</button>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="stats mb">
+      <div class="stat tone-green"><div class="sv" id="statTotal">0</div><div class="sl">审批总数</div></div>
+      <div class="stat tone-amber"><div class="sv mb" id="statPending">0</div><div class="sl">待审</div></div>
+      <div class="stat tone-blue"><div class="sv ok" id="statApproved">0</div><div class="sl">通过</div></div>
+      <div class="stat tone-red"><div class="sv danger" id="statRejected">0</div><div class="sl">驳回</div></div>
+      <div class="stat tone-purple"><div class="sv gray" id="statRecalled">0</div><div class="sl">已撤回</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <div class="ct">审批列表</div>
+        <div class="flex gap-s wrap">
+          <select class="sel" id="statusFilter" onchange="loadApprovals()">
+            <option value="">全部状态</option>
+            <option value="PENDING">待审</option>
+            <option value="APPROVED">通过</option>
+            <option value="REJECTED">驳回</option>
+            <option value="RECALLED">已撤回</option>
+          </select>
+          <button class="btn btn-o btn-sm" onclick="loadApprovals()">查询</button>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th style="width:50px">ID</th>
+            <th>业务类型</th>
+            <th style="width:80px">业务ID</th>
+            <th>标题</th>
+            <th style="width:80px">状态</th>
+            <th style="width:80px">当前节点</th>
+            <th style="width:110px">创建人</th>
+            <th style="width:90px">操作</th>
+          </tr></thead>
+          <tbody id="tableBody"><tr><td colspan="8" class="center muted" style="padding:40px">加载中…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="overlay" id="detailModal">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-h"><span class="mt">审批详情</span><button class="x" onclick="App.closeModal('detailModal')">✕</button></div>
+    <div class="modal-b" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- 新建审批弹窗 -->
+<div class="overlay" id="createModal">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-h"><span class="mt">新建审批</span><button class="x" onclick="App.closeModal('createModal')">✕</button></div>
+    <div class="modal-b">
+      <div class="form-row">
+        <div class="field"><label>业务类型</label>
+          <select class="sel" id="createType">
+            <option value="DEVICE_SCRAP">设备报废</option>
+            <option value="OWNERSHIP_TRANSFER">使用登记过户</option>
+            <option value="DOC_REVISION">体系文件修订</option>
+            <option value="INTERNAL_AUDIT">内部审核</option>
+            <option value="DAILY_INSPECTION">日管控检查</option>
+            <option value="EMERGENCY">应急救援</option>
+          </select>
+        </div>
+        <div class="field"><label>业务ID</label><input class="inp" id="createBizId" type="number" placeholder="关联业务记录ID"></div>
+      </div>
+      <div class="field"><label>标题</label><input class="inp" id="createTitle" type="text" placeholder="如 1号楼客梯报废评估"></div>
+      <div class="field"><label>审批节点（每行一个，可加 |角色，如 安全总监|admin）</label>
+        <textarea class="inp" id="createNodes" rows="4" placeholder="初审&#10;安全总监|admin&#10;总经理|admin"></textarea>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="btn btn-ghost btn-sm" onclick="App.closeModal('createModal')">取消</button>
+      <button class="btn btn-p btn-sm" onclick="saveApproval()">提交审批</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function awTag(s){var m={PENDING:['mb','待审'],APPROVED:['ok','通过'],REJECTED:['danger','驳回'],RECALLED:['gray','已撤回'],CANCELLED:['gray','取消']};var v=m[s]||['gray',esc(s)];return '<span class="tag '+v[0]+'">'+v[1]+'</span>';}
+  function nodeTag(s){var m={PENDING:['mb','待办'],APPROVED:['ok','通过'],REJECTED:['danger','驳回'],SKIPPED:['gray','跳过']};var v=m[s]||['gray',esc(s)];return '<span class="tag '+v[0]+'">'+v[1]+'</span>';}
+  window.__canApprove = <%= (user && (user.role === 'admin' || user.role === 'auditor')) ? 'true' : 'false' %>;
+
+  function loadStats(){
+    App.api('/api/approvals/stats').then(function(d){
+      document.getElementById('statTotal').textContent=d.total||0;
+      document.getElementById('statPending').textContent=(d.byStatus&&d.byStatus.PENDING)||0;
+      document.getElementById('statApproved').textContent=(d.byStatus&&d.byStatus.APPROVED)||0;
+      document.getElementById('statRejected').textContent=(d.byStatus&&d.byStatus.REJECTED)||0;
+      document.getElementById('statRecalled').textContent=(d.byStatus&&d.byStatus.RECALLED)||0;
+    }).catch(function(){});
+  }
+
+  function loadApprovals(){
+    var tbody=document.getElementById('tableBody');
+    tbody.innerHTML='<tr><td colspan="8" class="center muted" style="padding:40px">加载中…</td></tr>';
+    var q=[];
+    var st=document.getElementById('statusFilter').value;
+    if(st)q.push('status='+encodeURIComponent(st));
+    App.api('/api/approvals'+(q.length?'?'+q.join('&'):'')).then(function(d){
+      var data=d.data||[];
+      if(data.length===0){tbody.innerHTML='<tr><td colspan="8" class="center muted" style="padding:40px">暂无审批</td></tr>';return;}
+      tbody.innerHTML=data.map(function(t){
+        return '<tr>'+
+          '<td><span style="color:var(--primary);font-weight:600">#'+t.id+'</span></td>'+
+          '<td><span class="tag blue">'+esc(t.business_type||'')+'</span></td>'+
+          '<td>'+esc(t.business_id||'')+'</td>'+
+          '<td class="cell-main">'+esc(t.business_title||'')+'</td>'+
+          '<td>'+awTag(t.status)+'</td>'+
+          '<td><span class="soft">'+t.current_node+'</span></td>'+
+          '<td class="soft t-xs">'+esc(t.created_by||'')+'</td>'+
+          '<td><button class="btn btn-o btn-xs" onclick="viewApproval('+t.id+')">详情</button></td>'+
+          '</tr>';
+      }).join('');
+    }).catch(function(){tbody.innerHTML='<tr><td colspan="8" class="center" style="padding:40px;color:var(--danger)">加载失败</td></tr>';});
+  }
+
+  window.viewApproval=function(id){
+    App.api('/api/approvals/'+id).then(function(d){
+      var nodes=(d.nodes||[]).map(function(n){
+        return '<div class="kv mb-s"><span class="k">'+n.node_seq+'. '+esc(n.node_name)+'</span><span class="v">'+nodeTag(n.status)+(n.approver_email?(' · '+esc(n.approver_email)):'')+'</span>'+(n.comment?('<span class="soft t-xs">'+esc(n.comment)+'</span>'):'')+'</div>';
+      }).join('')||'<div class="muted">无节点</div>';
+      var canAct = window.__canApprove && d.status==='PENDING';
+      var actHtml = canAct ? '<div class="mb-s" style="margin-top:8px"><textarea class="inp" id="actComment" rows="2" placeholder="审批意见（可选）"></textarea><div class="flex gap-s" style="margin-top:8px"><button class="btn btn-p btn-sm" onclick="actNode('+d.id+','+d.current_node+',\'approve\')">通过</button><button class="btn btn-o btn-sm" onclick="actNode('+d.id+','+d.current_node+',\'reject\')">驳回</button></div></div>' : '';
+      document.getElementById('detailBody').innerHTML=
+        '<div class="kv mb"><span class="k">类型</span><span class="v">'+esc(d.business_type)+'</span>'+
+        '<span class="k">业务ID</span><span class="v">'+esc(d.business_id)+'</span>'+
+        '<span class="k">标题</span><span class="v">'+esc(d.business_title||'')+'</span>'+
+        '<span class="k">状态</span><span class="v">'+awTag(d.status)+'</span>'+
+        '<span class="k">当前节点</span><span class="v">'+d.current_node+'</span>'+
+        '<span class="k">创建人</span><span class="v">'+esc(d.created_by||'')+'</span></div>'+
+        '<div class="mb-s" style="font-size:14px;font-weight:700">审批节点</div>'+nodes+actHtml;
+      App.openModal('detailModal');
+    });
+  };
+
+  window.actNode=function(id,seq,action){
+    var comment=document.getElementById('actComment').value;
+    App.api('/api/approvals/'+id+'/nodes/'+seq+'/'+action,{method:'POST',body:JSON.stringify({comment:comment})}).then(function(d){
+      if(d.error){alert(d.error);return;}
+      alert(d.message||'操作成功');
+      App.closeModal('detailModal');
+      loadApprovals();loadStats();
+    }).catch(function(){alert('操作失败');});
+  };
+
+  window.showCreateModal=function(){
+    ['createType','createBizId','createTitle','createNodes'].forEach(function(id){document.getElementById(id).value='';});
+    App.openModal('createModal');
+  };
+
+  window.saveApproval=function(){
+    var businessType=document.getElementById('createType').value;
+    var businessId=document.getElementById('createBizId').value;
+    var businessTitle=document.getElementById('createTitle').value.trim();
+    var lines=document.getElementById('createNodes').value.split('\n').map(function(s){return s.trim();}).filter(Boolean);
+    if(!businessId){alert('请填写业务ID');return;}
+    if(lines.length===0){alert('请至少填写一个审批节点');return;}
+    var nodes=lines.map(function(l){var p=l.split('|');return {nodeName:p[0].trim(),approverRole:(p[1]||'').trim()||null};});
+    App.api('/api/approvals',{method:'POST',body:JSON.stringify({businessType:businessType,businessId:parseInt(businessId,10),businessTitle:businessTitle,nodes:nodes})}).then(function(d){
+      if(d.error){alert(d.error);return;}
+      alert(d.message||'提交成功');
+      App.closeModal('createModal');
+      loadApprovals();loadStats();
+    }).catch(function(){alert('提交失败');});
+  };
+
+  loadStats();
+  loadApprovals();
+})();
+</script>
+<%- include('partials/foot') %>

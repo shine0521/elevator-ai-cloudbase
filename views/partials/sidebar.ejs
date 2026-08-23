@@ -26,7 +26,7 @@ var NAV_ALIAS = {
   '': 'dashboard', 'dashboard': 'dashboard', 'index': 'dashboard', 'mobile': 'dashboard',
   'discriminate': 'discriminate', 'history': 'history', 'templates': 'templates',
   'knowledge': 'knowledge', 'audit': 'audit', 'research': 'research',
-  'logs': 'logs', 'settings': 'settings'
+  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals'
 };
 var navSegs = String(navPath).replace(/^\//, '').split('/').filter(Boolean);
 var navKeyRaw = (navSegs.length > 1 && navSegs[0] === 'mobile') ? navSegs[1] : (navSegs[0] || '');
@@ -72,6 +72,10 @@ function navCls(page){ return 'side-it' + (navPage === page ? ' on' : ''); }
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
       <span>人工审核</span>
       <% if (typeof pendingCount !== 'undefined' && pendingCount > 0) { %><span class="badge"><%= pendingCount %></span><% } %>
+    </a>
+    <a href="/approvals" class="<%= navCls('approvals') %>" data-page="approvals">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
+      <span>审批中心</span>
     </a>
     <% } %>
 
