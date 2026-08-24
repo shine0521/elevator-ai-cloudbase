@@ -88,6 +88,8 @@ function evaluateDevice(deviceId, triggerSource, sourceId) {
 // 创建预警事件（直接调用，不走评估器）
 function createEvent({ deviceId, warningType, warningLevel, warningItem, triggerSource, sourceId, thresholdValue, actualValue, actionRequired }) {
   const db2 = db.getDb();
+  const device = db2.prepare('SELECT id FROM elevator_device WHERE id = ?').get(deviceId);
+  if (!device) return null;
   const id = db2.prepare(`
     INSERT INTO warning_event (device_id, warning_type, warning_level, warning_item, trigger_source, source_id, threshold_value, actual_value, action_required, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')

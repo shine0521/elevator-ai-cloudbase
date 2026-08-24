@@ -736,7 +736,7 @@ app.get('/warnings', pageAuth, (req, res) => {
   const db = getDb();
   const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
   const stats = db.prepare('SELECT status, COUNT(*) as cnt FROM warning_event GROUP BY status').all();
-  const levelStats = db.prepare('SELECT warning_level, COUNT(*) as cnt FROM warning_event WHERE status IN ("OPEN","ACKNOWLEDGED") GROUP BY warning_level').all();
+  const levelStats = db.prepare("SELECT warning_level, COUNT(*) as cnt FROM warning_event WHERE status IN ('OPEN','ACKNOWLEDGED') GROUP BY warning_level").all();
   res.render('warnings', { title: '设备预警中心', user: req.user, devices, stats, levelStats });
 });
 
@@ -1660,6 +1660,7 @@ app.post('/api/warnings/trigger', authMiddleware, roleMiddleware('admin'), (req,
   const { deviceId, warningType, warningLevel, warningItem, triggerSource, sourceId, thresholdValue, actualValue, actionRequired } = req.body;
   if (!deviceId || !warningType || !warningLevel) throw new ValidationError('设备ID、预警类型、级别为必填');
   const event = warnEngine.createEvent({ deviceId, warningType, warningLevel, warningItem, triggerSource, sourceId, thresholdValue, actualValue, actionRequired });
+  if (!event) throw new ValidationError('设备不存在');
   logOperation('触发预警', req.user.email, 'warning_event', event.event_id, `${warningType} ${warningLevel} ${warningItem || ''}`);
   res.json({ success: true, event });
 });
@@ -1694,7 +1695,7 @@ app.get('/api/warnings', authMiddleware, (req, res) => {
 app.get('/api/warnings/stats', authMiddleware, (req, res) => {
   const db = getDb();
   const byStatus = db.prepare('SELECT status, COUNT(*) as cnt FROM warning_event GROUP BY status').all();
-  const byLevel = db.prepare('SELECT warning_level, COUNT(*) as cnt FROM warning_event WHERE status IN ("OPEN","ACKNOWLEDGED") GROUP BY warning_level').all();
+  const byLevel = db.prepare("SELECT warning_level, COUNT(*) as cnt FROM warning_event WHERE status IN ('OPEN','ACKNOWLEDGED') GROUP BY warning_level").all();
   const total = db.prepare('SELECT COUNT(*) as cnt FROM warning_event').get().cnt;
   res.json({ total, byStatus, byLevel });
 });
