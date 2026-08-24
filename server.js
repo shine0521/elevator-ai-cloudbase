@@ -1577,6 +1577,142 @@ app.get('/api/templates/:id/match', authMiddleware, (req, res) => {
   res.json({ template: tpl, region, variantApplied: !!variant, fields, rules });
 });
 
+// ==================== M5 权限管理与组织架构 ====================
+
+// 组织架构页面（admin）
+app.get('/organizations', pageAuth, (req, res) => {
+  const db = getDb();
+  const orgs = db.prepare('SELECT * FROM organizations WHERE status = ? ORDER BY level, id').all('active');
+  res.render('organizations', { title: '组织架构', user: req.user, orgs });
+});
+
+// 权限矩阵页面（admin）
+app.get('/permissions', pageAuth, (req, res) => {
+  const db = getDb();
+  const perms = db.prepare('SELECT * FROM role_permissions ORDER BY role, resource').all();
+  const roles = [...new Set(perms.map(p => p.role))];
+  const resources = [...new Set(perms.map(p => p.resource))];
+  res.render('permissions', { title: '权限矩阵', user: req.user, perms, roles, resources });
+});
+
+// --- 组织架构 API ---
+app.get('/api/orgs', authMiddleware, (req, res) => {
+  const db = getDb();
+  const orgs = db.prepare('SELECT * FROM organizations WHERE status = ? ORDER BY level, id').all('active');
+  res.json({ data: orgs });
+});
+
+app.post('/api/orgs', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const { name, orgType, parentId, regionCode } = req.body;
+  if (!name || !orgType) throw new ValidationError('名称和类型为必填');
+  const parent = parentId ? db.prepare('SELECT id, level FROM organizations WHERE id = ?').get(parentId) : null;
+  const level = parent ? parent.level + 1 : 1;
+  const info = db.prepare('INSERT INTO organizations (name, org_type, parent_id, region_code, level) VALUES (?, ?, ?, ?, ?)').run(name, orgType, parentId||null, regionCode||null, level);
+  const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(info.lastInsertRowid);
+  logOperation('创建组织', req.user.email, 'organizations', org.id, `组织: ${name} 类型: ${orgType}`);
+  res.json({ success: true, org });
+});
+
+app.put('/api/orgs/:id', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.params.id);
+  if (!org) throw new NotFoundError('组织不存在');
+  const { name, regionCode, status } = req.body;
+  db.prepare('UPDATE organizations SET name=?, region_code=?, status=? WHERE id = ?').run(name||org.name, regionCode||null, status||org.status, req.params.id);
+  logOperation('修改组织', req.user.email, 'organizations', req.params.id, `修改组织: ${name||org.name}`);
+  res.json({ success: true });
+});
+
+app.delete('/api/orgs/:id', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const org = db.prepare('SELECT * FROM organizations WHERE id = ?').get(req.params.id);
+  if (!org) throw new NotFoundError('组织不存在');
+  const children = db.prepare('SELECT COUNT(*) as cnt FROM organizations WHERE parent_id = ?').get(req.params.id);
+  if (children.cnt > 0) throw new ValidationError('请先删除子组织');
+  db.prepare('UPDATE organizations SET status = ? WHERE id = ?').run('inactive', req.params.id);
+  logOperation('删除组织', req.user.email, 'organizations', req.params.id, `软删除组织: ${org.name}`);
+  res.json({ success: true });
+});
+
+// --- 用户管理 API ---
+app.get('/api/users', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { role, q, orgId } = req.query;
+  const conds = [], params = [];
+  if (role) { conds.push('u.role = ?'); params.push(role); }
+  if (orgId) { conds.push('u.org_id = ?'); params.push(orgId); }
+  if (q) { conds.push('(u.email LIKE ? OR u.name LIKE ?)'); params.push('%'+q+'%','%'+q+'%'); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT u.id, u.email, u.name, u.role, u.status, u.org_name, u.mobile_roles, u.role_flags, u.last_login, u.login_count FROM users u ${where} ORDER BY u.id`).all(...params);
+  data.forEach(u => {
+    try { u.mobile_roles = u.mobile_roles ? JSON.parse(u.mobile_roles) : []; } catch(e) { u.mobile_roles = []; }
+    try { u.role_flags = u.role_flags ? JSON.parse(u.role_flags) : {}; } catch(e) { u.role_flags = {}; }
+  });
+  res.json({ data });
+});
+
+app.get('/api/users/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const u = db.prepare('SELECT id, email, name, role, status, phone, department, org_id, org_name, mobile_roles, role_flags, last_login, login_count, created_at FROM users WHERE id = ?').get(req.params.id);
+  if (!u) throw new NotFoundError('用户不存在');
+  try { u.mobile_roles = u.mobile_roles ? JSON.parse(u.mobile_roles) : []; } catch(e) { u.mobile_roles = []; }
+  try { u.role_flags = u.role_flags ? JSON.parse(u.role_flags) : {}; } catch(e) { u.role_flags = {}; }
+  res.json(u);
+});
+
+app.put('/api/users/:id/roles', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const u = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  if (!u) throw new NotFoundError('用户不存在');
+  const { role, status, orgId, orgName, mobileRoles, roleFlags } = req.body;
+  db.prepare("UPDATE users SET role=?, status=?, org_id=?, org_name=?, mobile_roles=?, role_flags=?, updated_at=datetime('now') WHERE id = ?").run(
+    role||'user', status||'active', orgId||null, orgName||null,
+    mobileRoles ? JSON.stringify(mobileRoles) : null,
+    roleFlags ? JSON.stringify(roleFlags) : null,
+    req.params.id
+  );
+  logOperation('修改用户角色', req.user.email, 'users', req.params.id, `角色变更: ${role} 组织: ${orgName}`);
+  res.json({ success: true });
+});
+
+// --- 权限矩阵 API ---
+app.get('/api/permissions', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const perms = db.prepare('SELECT * FROM role_permissions ORDER BY role, resource').all();
+  res.json({ data: perms });
+});
+
+app.put('/api/permissions/:id', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const { action } = req.body;
+  if (!['read','write','admin','none'].includes(action)) throw new ValidationError('无效操作');
+  db.prepare('UPDATE role_permissions SET action = ? WHERE id = ?').run(action, req.params.id);
+  logOperation('修改权限', req.user.email, 'role_permissions', req.params.id, `权限变更为: ${action}`);
+  res.json({ success: true });
+});
+
+app.post('/api/permissions/reset', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  // 默认权限矩阵（基础覆盖，按 V2.1 权限设计）
+  const defaults = [
+    // admin: 全权限
+    ['admin','devices','admin'],['admin','transfers','admin'],['admin','scrap','admin'],['admin','documents','admin'],['admin','warnings','admin'],['admin','approvals','admin'],['admin','templates','admin'],['admin','knowledge','admin'],['admin','organizations','admin'],['admin','users','admin'],['admin','permissions','admin'],['admin','logs','read'],
+    // auditor: 审核+只读
+    ['auditor','approvals','write'],['auditor','logs','read'],['auditor','devices','read'],['auditor','templates','read'],['auditor','knowledge','read'],['auditor','warnings','read'],['auditor','documents','read'],
+    // user: 基础只读+操作
+    ['user','devices','read'],['user','templates','read'],['user','knowledge','read'],['user','warnings','read'],['user','documents','read'],
+  ];
+  db.transaction(() => {
+    db.prepare('DELETE FROM role_permissions').run();
+    defaults.forEach(([role, resource, action]) => {
+      db.prepare('INSERT OR IGNORE INTO role_permissions (role, resource, action, scope) VALUES (?, ?, ?, ?)').run(role, resource, action, 'global');
+    });
+  })();
+  logOperation('重置权限', req.user.email, 'role_permissions', 0, '恢复默认权限矩阵');
+  res.json({ success: true });
+});
+
 // ==================== API: AI 文档生成引擎 M2 ====================
 const docGen = require('./doc-generator');
 const ALLOWED_DEVICE_FIELDS = ['status', 'risk_level'];
@@ -1815,7 +1951,7 @@ app.put('/api/transfers/:id', authMiddleware, roleMiddleware('admin'), (req, res
   if (!t) throw new NotFoundError('过户记录不存在');
   if (t.status !== 'PENDING' && t.status !== 'IN_REVIEW') throw new ValidationError('当前状态不允许修改');
   const { oldOwner, oldContact, newOwner, newContact, newMaintenanceUnit, reason } = req.body;
-  db.prepare('UPDATE ownership_transfer SET old_owner=?, old_contact=?, new_owner=?, new_contact=?, new_maintenance_unit=?, reason=?, updated_at=datetime("now") WHERE id = ?').run(oldOwner||null, oldContact||null, newOwner||null, newContact||null, newMaintenanceUnit||null, reason||null, req.params.id);
+  db.prepare("UPDATE ownership_transfer SET old_owner=?, old_contact=?, new_owner=?, new_contact=?, new_maintenance_unit=?, reason=?, updated_at=datetime('now') WHERE id = ?").run(oldOwner||null, oldContact||null, newOwner||null, newContact||null, newMaintenanceUnit||null, reason||null, req.params.id);
   logOperation('修改过户', req.user.email, 'ownership_transfer', req.params.id, '修改过户信息');
   res.json({ success: true });
 });
@@ -1895,7 +2031,7 @@ app.put('/api/scrap/:id', authMiddleware, roleMiddleware('admin'), (req, res) =>
   if (!s) throw new NotFoundError('报废记录不存在');
   if (s.status !== 'PENDING' && s.status !== 'ASSESSING' && s.status !== 'IN_APPROVAL') throw new ValidationError('当前状态不允许修改');
   const { scrapReason, assessmentReportNo, disposalRecord } = req.body;
-  db.prepare('UPDATE device_scrap SET scrap_reason=?, assessment_report_no=?, disposal_record=?, updated_at=datetime("now") WHERE id = ?').run(scrapReason||null, assessmentReportNo||null, disposalRecord||null, req.params.id);
+  db.prepare("UPDATE device_scrap SET scrap_reason=?, assessment_report_no=?, disposal_record=?, updated_at=datetime('now') WHERE id = ?").run(scrapReason||null, assessmentReportNo||null, disposalRecord||null, req.params.id);
   logOperation('修改报废', req.user.email, 'device_scrap', req.params.id, '修改报废信息');
   res.json({ success: true });
 });

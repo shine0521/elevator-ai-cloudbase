@@ -1,0 +1,170 @@
+<%- include('partials/head') %>
+<%
+const isAdmin = (user.role === 'admin');
+%>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '组织架构', crumb: [{label:'系统管理'},{label:'组织架构'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">组织架构管理</div>
+        <div class="pd">总部/分子公司/项目部三级组织树 · 数据隔离按组织维度（案例十一）</div>
+      </div>
+      <% if (isAdmin) { %>
+      <button class="btn btn-p" onclick="showCreate()">+ 新增组织</button>
+      <% } %>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><div class="ct">组织架构树</div></div>
+      <div class="card-b" id="orgTree" style="padding:16px">
+        <div class="soft t-s" style="padding:16px;text-align:center">加载中…</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<div class="overlay" id="editOverlay" style="display:none">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-hd"><span class="modal-tt" id="editTitle">新增组织</span><button class="modal-cls" onclick="App.closeModal('editOverlay')">×</button></div>
+    <div class="modal-bd">
+      <div class="form-row mb"><div class="t-xs soft">组织名称 *</div><input class="inp" id="eName" placeholder="如：特安助（北京）科技有限公司"></div>
+      <div class="form-row mb"><div class="t-xs soft">组织类型 *</div>
+        <select class="sel" id="eType">
+          <option value="HQ">总部 HQ</option>
+          <option value="REGIONAL">区域公司 REGIONAL</option>
+          <option value="SUBSIDIARY">分子公司 SUBSIDIARY</option>
+          <option value="PROJECT">项目部 PROJECT</option>
+        </select>
+      </div>
+      <div class="form-row mb"><div class="t-xs soft">上级组织</div>
+        <select class="sel" id="eParent"><option value="">无（顶级）</option></select>
+      </div>
+      <div class="form-row mb"><div class="t-xs soft">区域码</div><input class="inp" id="eRegion" placeholder="如：BJ、TJ"></div>
+      <div id="eResult" class="soft t-xs"></div>
+      <div class="flex gap-s mt"><button class="btn btn-p" onclick="saveOrg()">保存</button><button class="btn btn-o" onclick="App.closeModal('editOverlay')">取消</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var editingId=null;
+  var allOrgs=[];
+  var isAdmin=<%= isAdmin %>;
+
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}
+  function typeLabel(t){
+    var m={'HQ':'总部','REGIONAL':'区域','SUBSIDIARY':'分子公司','PROJECT':'项目部'};
+    var c={'HQ':'blue','REGIONAL':'purple','SUBSIDIARY':'amber','PROJECT':'green'};
+    return '<span class="tag '+esc(c[t]||'blue')+'">'+esc(m[t]||t)+'</span>';
+  }
+
+  function opBtn(id){
+    if(!isAdmin) return '';
+    return '<button class="btn btn-o btn-xs" onclick="editOrg('+id+')" style="margin-left:4px">编辑</button>'+
+           '<button class="btn btn-o btn-xs" onclick="delOrg('+id+')" style="margin-left:4px">删除</button>';
+  }
+
+  function renderNode(o, level){
+    var indent='margin-left:'+(level*24)+'px';
+    var bg=level===0?'var(--bg2)':'var(--bg1)';
+    var border=level===0?'none':'none';
+    var html='<div style="padding:10px 12px;background:'+bg+';display:flex;align-items:center;gap:8px;flex-wrap:wrap;'+border+'">'+
+      '<b>'+esc(o.name)+'</b>'+typeLabel(o.org_type)+
+      '<span class="t-xs soft">'+(o.region_code?' ['+esc(o.region_code)+']':'')+'</span>'+
+      '<span class="t-xs soft">('+(o.device_count||0)+'台设备)</span>'+
+      opBtn(o.id)+'</div>';
+    var children=allOrgs.filter(function(x){return x.parent_id===o.id;});
+    if(children.length){
+      html+='<div style="border-left:1px solid var(--border);margin-left:'+(level*24+12)+'px">';
+      children.forEach(function(c){html+=renderNode(c,level+1);});
+      html+='</div>';
+    }
+    return html;
+  }
+
+  function render(){
+    if(!allOrgs.length){
+      document.getElementById('orgTree').innerHTML='<div class="soft t-s" style="padding:16px">暂无组织，请先新增</div>';
+      return;
+    }
+    var roots=allOrgs.filter(function(o){return !o.parent_id;});
+    document.getElementById('orgTree').innerHTML='<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden">';
+    roots.forEach(function(r){document.getElementById('orgTree').innerHTML+=renderNode(r,0);});
+    document.getElementById('orgTree').innerHTML+='</div>';
+  }
+
+  window.showCreate=function(pid){
+    editingId=null;
+    document.getElementById('editTitle').textContent='新增组织';
+    document.getElementById('eName').value='';
+    document.getElementById('eType').value='SUBSIDIARY';
+    document.getElementById('eRegion').value='';
+    var sel=document.getElementById('eParent');
+    sel.innerHTML='<option value="">无（顶级）</option>'+allOrgs.map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>';}).join('');
+    if(pid){sel.value=pid;}
+    document.getElementById('eResult').textContent='';
+    App.openModal('editOverlay');
+  };
+
+  window.editOrg=function(id){
+    var o=allOrgs.filter(function(x){return x.id===id;})[0];
+    if(!o) return;
+    editingId=id;
+    document.getElementById('editTitle').textContent='编辑组织';
+    document.getElementById('eName').value=o.name||'';
+    document.getElementById('eType').value=o.org_type||'SUBSIDIARY';
+    document.getElementById('eRegion').value=o.region_code||'';
+    var sel=document.getElementById('eParent');
+    sel.innerHTML='<option value="">无（顶级）</option>'+allOrgs.filter(function(x){return x.id!==id;}).map(function(x){return '<option value="'+x.id+'">'+esc(x.name)+'</option>';}).join('');
+    sel.value=o.parent_id||'';
+    document.getElementById('eResult').textContent='';
+    App.openModal('editOverlay');
+  };
+
+  window.saveOrg=function(){
+    var name=document.getElementById('eName').value.trim();
+    var orgType=document.getElementById('eType').value;
+    var parentId=document.getElementById('eParent').value;
+    if(!name){alert('请输入组织名称');return;}
+    var body={name:name,orgType:orgType,parentId:parentId?parseInt(parentId,10):null,regionCode:document.getElementById('eRegion').value.trim()||null};
+    var url='/api/orgs'+(editingId?'/'+editingId:'');
+    var method=editingId?'PUT':'POST';
+    App.api(url,{method:method,body:JSON.stringify(body)}).then(function(d){
+      if(d.success){App.closeModal('editOverlay');load();} else alert(d.error||'保存失败');
+    }).catch(function(){alert('保存失败');});
+  };
+
+  window.delOrg=function(id){
+    var o=allOrgs.filter(function(x){return x.id===id;})[0];
+    if(!o) return;
+    if(!confirm('确认删除组织「'+o.name+'」？')) return;
+    App.api('/api/orgs/'+id,{method:'DELETE'}).then(function(d){
+      if(d.success){load();} else alert(d.error||'删除失败');
+    }).catch(function(){alert('删除失败');});
+  };
+
+  function load(){
+    App.api('/api/orgs').then(function(d){
+      allOrgs=d.data||[];
+      App.api('/api/devices').then(function(dd){
+        var cnt={};
+        (dd.data||[]).forEach(function(x){cnt[x.org_id||0]=(cnt[x.org_id||0]||0)+1;});
+        allOrgs.forEach(function(o){o.device_count=cnt[o.id]||0;});
+        render();
+      }).catch(function(){render();});
+    }).catch(function(){
+      document.getElementById('orgTree').innerHTML='<div class="soft t-s" style="padding:16px">加载失败</div>';
+    });
+  }
+
+  load();
+})();
+</script>
+<%- include('partials/foot') %>

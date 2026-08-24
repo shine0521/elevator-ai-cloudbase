@@ -1,0 +1,100 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '权限矩阵', crumb: [{label:'系统管理'},{label:'权限矩阵'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">权限矩阵</div>
+        <div class="pd">RBAC · 角色 × 功能点 · 覆盖 admin/auditor/user（案例十：角色权限矩阵）</div>
+      </div>
+      <% if (user.role === 'admin') { %>
+      <button class="btn btn-o" onclick="resetPerms()">重置为默认</button>
+      <% } %>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><div class="ct">权限矩阵表</div></div>
+      <div class="card-b" style="overflow-x:auto;padding:0">
+        <table class="tbl" id="permTable">
+          <thead id="permHead"></thead>
+          <tbody id="permBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt">
+      <div class="card-h"><div class="ct">说明</div></div>
+      <div class="card-b" style="padding:16px;line-height:1.8" class="soft">
+        <div><span class="tag green">write</span> 可读可写；<span class="tag blue">read</span> 只读；<span class="tag red">admin</span> 管理；<span class="tag soft">none</span> 无权限</div>
+        <div class="mt">移动端角色（mobile_roles）：safety_officer（安全员）/ inspector（维保人员）/ safety_director（安全总监）/ principal（主要负责人）/ admin（管理员）</div>
+        <div class="mt">职能标记（role_flags）：template_admin（模板管理员）/ warning_admin（预警管理员）</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<script>
+(function(){
+  var perms=<%- JSON.stringify(perms) %>;
+  var roles=<%- JSON.stringify(roles) %>;
+  var resources=<%- JSON.stringify(resources) %>;
+
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}
+  function actionTag(a){
+    var m={'write':'green','read':'blue','admin':'red','none':'soft'};
+    return '<span class="tag '+esc(m[a]||'soft')+'">'+esc(a||'none')+'</span>';
+  }
+  var roleLabels={'admin':'管理员 admin','auditor':'审核员 auditor','user':'操作员 user'};
+
+  // Build action map: role → resource → action
+  var am={};
+  roles.forEach(function(r){am[r]={};});
+  perms.forEach(function(p){if(am[p.role])am[p.role][p.resource]=p.action||'none';});
+  resources=['devices','templates','knowledge','approvals','warnings','transfers','scrap','documents','organizations','logs'];
+
+  var resLabels={'devices':'设备','templates':'模板','knowledge':'知识库','approvals':'审批','warnings':'预警','transfers':'过户','scrap':'报废','documents':'文档','organizations':'组织','logs':'日志'};
+
+  // Header
+  document.getElementById('permHead').innerHTML='<tr><th style="min-width:100px">角色</th>'+
+    resources.map(function(r){return '<th style="min-width:90px;text-align:center">'+esc(resLabels[r]||r)+'</th>';}).join('')+'</tr>';
+
+  // Body
+  document.getElementById('permBody').innerHTML=roles.map(function(r){
+    return '<tr>'+
+      '<td><b>'+esc(roleLabels[r]||r)+'</b></td>'+
+      resources.map(function(res){
+        var a=am[r]&&am[r][res]||'none';
+        var pid=(perms.filter(function(p){return p.role===r&&p.resource===res;})[0]||{}).id;
+        var edit=<%- user.role==='admin' %>;
+        return '<td style="text-align:center">'+
+          (edit&&pid?'<a href="javascript:void(0)" onclick="cycle(\''+pid+'\',\''+r+'\',\''+res+'\',\''+a+'\')" title="点击切换">'+actionTag(a)+'</a>':actionTag(a))+'</td>';
+      }).join('')+'</tr>';
+  }).join('');
+
+  window.cycle=function(pid,role,res,cur){
+    var next={'none':'read','read':'write','write':'admin','admin':'none'};
+    var na=next[cur]||'none';
+    App.api('/api/permissions/'+pid,{method:'PUT',body:JSON.stringify({action:na})}).then(function(d){
+      if(d.success){
+        // Update tag in place
+        var tags=document.querySelectorAll('.tag');
+        // Simple reload for now
+        location.reload();
+      } else alert(d.error||'保存失败');
+    }).catch(function(){alert('保存失败');});
+  };
+
+  window.resetPerms=function(){
+    if(!confirm('确认重置为默认权限矩阵？')) return;
+    App.api('/api/permissions/reset',{method:'POST'}).then(function(d){
+      if(d.success){alert('已重置');location.reload();} else alert(d.error||'重置失败');
+    }).catch(function(){alert('重置失败');});
+  };
+})();
+</script>
+<%- include('partials/foot') %>

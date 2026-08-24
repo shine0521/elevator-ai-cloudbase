@@ -26,7 +26,7 @@ var NAV_ALIAS = {
   '': 'dashboard', 'dashboard': 'dashboard', 'index': 'dashboard', 'mobile': 'dashboard',
   'discriminate': 'discriminate', 'history': 'history', 'templates': 'templates',
   'knowledge': 'knowledge', 'audit': 'audit', 'research': 'research',
-  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle', 'documents': 'documents', 'warnings': 'warnings', 'transfers': 'transfers', 'scrap': 'scrap'
+  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle', 'documents': 'documents', 'warnings': 'warnings', 'transfers': 'transfers', 'scrap': 'scrap', 'organizations': 'organizations', 'permissions': 'permissions'
 };
 var navSegs = String(navPath).replace(/^\//, '').split('/').filter(Boolean);
 var navKeyRaw = (navSegs.length > 1 && navSegs[0] === 'mobile') ? navSegs[1] : (navSegs[0] || '');
@@ -120,6 +120,16 @@ function navCls(page){ return 'side-it' + (navPage === page ? ' on' : ''); }
     <a href="<%= navHref('/logs') %>" class="<%= navCls('logs') %>" data-page="logs">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
       <span>司法留痕</span>
+    </a>
+    <% } %>
+    <% if (user && user.role === 'admin') { %>
+    <a href="<%= navHref('/organizations') %>" class="<%= navCls('organizations') %>" data-page="organizations">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      <span>组织架构</span>
+    </a>
+    <a href="<%= navHref('/permissions') %>" class="<%= navCls('permissions') %>" data-page="permissions">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span>权限矩阵</span>
     </a>
     <% } %>
     <a href="<%= navHref('/settings') %>" class="<%= navCls('settings') %>" data-page="settings">
