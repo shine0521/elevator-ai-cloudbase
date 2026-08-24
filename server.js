@@ -731,6 +731,15 @@ app.get('/documents', pageAuth, (req, res) => {
   res.render('documents', { title: 'AI 文档生成', user: req.user, devices });
 });
 
+// 设备预警中心（M3）
+app.get('/warnings', pageAuth, (req, res) => {
+  const db = getDb();
+  const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
+  const stats = db.prepare('SELECT status, COUNT(*) as cnt FROM warning_event GROUP BY status').all();
+  const levelStats = db.prepare('SELECT warning_level, COUNT(*) as cnt FROM warning_event WHERE status IN ("OPEN","ACKNOWLEDGED") GROUP BY warning_level').all();
+  res.render('warnings', { title: '设备预警中心', user: req.user, devices, stats, levelStats });
+});
+
 // 知识库
 app.get('/knowledge', pageAuth, (req, res) => {
   const db = getDb();
@@ -1641,6 +1650,90 @@ app.get('/api/documents/:id/verify', authMiddleware, (req, res) => {
   const pdfOk = d.pdf_file_path && fs.existsSync(d.pdf_file_path) && docGen.sha256(fs.readFileSync(d.pdf_file_path)) === d.pdf_hash;
   const wordOk = d.word_file_path && fs.existsSync(d.word_file_path) && docGen.sha256(fs.readFileSync(d.word_file_path)) === d.word_hash;
   res.json({ docId: d.doc_id, pdfOk, wordOk });
+});
+
+// ==================== API: 设备预警引擎 M3 ====================
+const warnEngine = require('./warning-engine');
+
+// 触发预警（M2 文档生成后调用，或任意业务节点调用）
+app.post('/api/warnings/trigger', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const { deviceId, warningType, warningLevel, warningItem, triggerSource, sourceId, thresholdValue, actualValue, actionRequired } = req.body;
+  if (!deviceId || !warningType || !warningLevel) throw new ValidationError('设备ID、预警类型、级别为必填');
+  const event = warnEngine.createEvent({ deviceId, warningType, warningLevel, warningItem, triggerSource, sourceId, thresholdValue, actualValue, actionRequired });
+  logOperation('触发预警', req.user.email, 'warning_event', event.event_id, `${warningType} ${warningLevel} ${warningItem || ''}`);
+  res.json({ success: true, event });
+});
+
+// 设备状态变化自动触发预警（POST /api/warnings/auto-trigger）
+// 设备状态 NORMAL→ATTENTION/WARNING 时自动触发 status 类预警
+app.post('/api/warnings/auto-trigger', authMiddleware, (req, res) => {
+  const { deviceId, triggerSource, sourceId, oldStatus, newStatus } = req.body;
+  if (!deviceId || !newStatus) throw new ValidationError('设备ID和新状态为必填');
+  const events = warnEngine.evaluateDevice(deviceId, triggerSource || 'DEVICE_STATUS_CHANGE', sourceId || null);
+  res.json({ success: true, triggered: events.length, events });
+});
+
+app.get('/api/warnings', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, level, deviceId, q } = req.query;
+  const conds = [], params = [];
+  if (status) { conds.push('w.status = ?'); params.push(status); }
+  if (level) { conds.push('w.warning_level = ?'); params.push(level); }
+  if (deviceId) { conds.push('w.device_id = ?'); params.push(deviceId); }
+  if (q) { conds.push('(w.warning_item LIKE ? OR d.device_code LIKE ?)'); params.push('%' + q + '%', '%' + q + '%'); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const data = db.prepare(`
+    SELECT w.*, d.device_code, d.device_name FROM warning_event w
+    LEFT JOIN elevator_device d ON w.device_id = d.id
+    ${where}
+    ORDER BY w.created_at DESC LIMIT 200
+  `).all(...params);
+  res.json({ data });
+});
+
+app.get('/api/warnings/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const byStatus = db.prepare('SELECT status, COUNT(*) as cnt FROM warning_event GROUP BY status').all();
+  const byLevel = db.prepare('SELECT warning_level, COUNT(*) as cnt FROM warning_event WHERE status IN ("OPEN","ACKNOWLEDGED") GROUP BY warning_level').all();
+  const total = db.prepare('SELECT COUNT(*) as cnt FROM warning_event').get().cnt;
+  res.json({ total, byStatus, byLevel });
+});
+
+app.get('/api/warnings/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const ev = db.prepare('SELECT w.*, d.device_code, d.device_name FROM warning_event w LEFT JOIN elevator_device d ON w.device_id = d.id WHERE w.event_id = ?').get(req.params.id);
+  if (!ev) throw new NotFoundError('预警事件不存在');
+  const logs = db.prepare('SELECT * FROM notification_log WHERE event_id = ? ORDER BY sent_at').all(req.params.id);
+  res.json({ ...ev, notificationLogs: logs });
+});
+
+app.post('/api/warnings/:id/acknowledge', authMiddleware, (req, res) => {
+  const db = getDb();
+  const ev = db.prepare('SELECT * FROM warning_event WHERE event_id = ?').get(req.params.id);
+  if (!ev) throw new NotFoundError('预警事件不存在');
+  if (ev.status !== 'OPEN') throw new ValidationError('当前状态不允许确认');
+  warnEngine.acknowledgeEvent(req.params.id, req.user.email, req.body.note);
+  logOperation('确认预警', req.user.email, 'warning_event', req.params.id, `${ev.warning_level} ${ev.warning_item}`);
+  res.json({ success: true });
+});
+
+app.post('/api/warnings/:id/resolve', authMiddleware, (req, res) => {
+  const db = getDb();
+  const ev = db.prepare('SELECT * FROM warning_event WHERE event_id = ?').get(req.params.id);
+  if (!ev) throw new NotFoundError('预警事件不存在');
+  if (ev.status === 'DISMISSED') throw new ValidationError('已忽略的预警不可标记解决');
+  warnEngine.resolveEvent(req.params.id, req.user.email, req.body.note);
+  logOperation('解决预警', req.user.email, 'warning_event', req.params.id, `${ev.warning_level} ${ev.warning_item}`);
+  res.json({ success: true });
+});
+
+app.post('/api/warnings/:id/dismiss', authMiddleware, (req, res) => {
+  const db = getDb();
+  const ev = db.prepare('SELECT * FROM warning_event WHERE event_id = ?').get(req.params.id);
+  if (!ev) throw new NotFoundError('预警事件不存在');
+  warnEngine.dismissEvent(req.params.id, req.user.email, req.body.note);
+  logOperation('忽略预警', req.user.email, 'warning_event', req.params.id, `${ev.warning_level} ${ev.warning_item}`);
+  res.json({ success: true });
 });
 
 // ==================== API: 模板规则管理 ====================

@@ -26,7 +26,7 @@ var NAV_ALIAS = {
   '': 'dashboard', 'dashboard': 'dashboard', 'index': 'dashboard', 'mobile': 'dashboard',
   'discriminate': 'discriminate', 'history': 'history', 'templates': 'templates',
   'knowledge': 'knowledge', 'audit': 'audit', 'research': 'research',
-  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle', 'documents': 'documents'
+  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle', 'documents': 'documents', 'warnings': 'warnings'
 };
 var navSegs = String(navPath).replace(/^\//, '').split('/').filter(Boolean);
 var navKeyRaw = (navSegs.length > 1 && navSegs[0] === 'mobile') ? navSegs[1] : (navSegs[0] || '');
@@ -92,6 +92,10 @@ function navCls(page){ return 'side-it' + (navPage === page ? ' on' : ''); }
     <a href="/documents" class="<%= navCls('documents') %>" data-page="documents">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg>
       <span>AI 文档生成</span>
+    </a>
+    <a href="/warnings" class="<%= navCls('warnings') %>" data-page="warnings">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span>设备预警中心</span>
     </a>
     <% } %>
 

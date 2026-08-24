@@ -1,0 +1,175 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '设备预警中心', crumb: [{label:'设备预警中心'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">设备预警中心</div>
+        <div class="pd">4 类预警（状态/阈值/时限/趋势）· urgent/critical 强制人工确认 · 事件不可物理删除（M3）</div>
+      </div>
+    </div>
+
+    <div class="stats-row mb" id="wStats">
+      <div class="stat tone-red" id="sOpen"><div class="sv" id="cntOpen">—</div><div class="sl">待处理</div></div>
+      <div class="stat tone-amber" id="sAck"><div class="sv" id="cntAck">—</div><div class="sl">已确认</div></div>
+      <div class="stat tone-purple" id="sResolved"><div class="sv" id="cntResolved">—</div><div class="sl">已解决</div></div>
+      <div class="stat tone-blue" id="sCritical"><div class="sv" id="cntCritical">—</div><div class="sl">urgent/critical</div></div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h">
+        <div class="ct">预警事件</div>
+        <div class="flex gap-s">
+          <select class="sel sel-sm" id="fltStatus"><option value="">全部状态</option><option value="OPEN">待处理</option><option value="ACKNOWLEDGED">已确认</option><option value="RESOLVED">已解决</option><option value="DISMISSED">已忽略</option></select>
+          <select class="sel sel-sm" id="fltLevel"><option value="">全部级别</option><option value="critical">critical</option><option value="urgent">urgent</option><option value="high">high</option><option value="medium">medium</option><option value="low">low</option></select>
+          <select class="sel sel-sm" id="fltDevice"><option value="">全部设备</option><% devices.forEach(function(d){ %><option value="<%= d.id %>"><%= d.device_code %></option><% }) %></select>
+          <button class="btn btn-o btn-sm" onclick="loadWarnings()">刷新</button>
+        </div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>级别</th><th>类型</th><th>预警项</th><th>设备</th><th>触发源</th><th>状态</th><th>时间</th><th>操作</th></tr></thead><tbody id="wBody"></tbody></table></div>
+    </div>
+
+    <% if (user.role === 'admin') { %>
+    <div class="card mb">
+      <div class="card-h"><div class="ct">手动触发预警</div></div>
+      <div class="card-b" style="padding:16px">
+        <div class="form-row mb">
+          <select class="sel" id="tDevice"><option value="">选择设备</option><% devices.forEach(function(d){ %><option value="<%= d.id %>"><%= d.device_code %> · <%= d.device_name %></option><% }) %></select>
+          <select class="sel" id="tType">
+            <option value="STATUS">状态预警 STATUS</option>
+            <option value="THRESHOLD">阈值预警 THRESHOLD</option>
+            <option value="DEADLINE">时限预警 DEADLINE</option>
+            <option value="TREND">趋势预警 TREND</option>
+          </select>
+          <select class="sel" id="tLevel">
+            <option value="low">low 低</option>
+            <option value="medium">medium 中</option>
+            <option value="high">high 高</option>
+            <option value="urgent">urgent 紧急</option>
+            <option value="critical">critical 严重</option>
+          </select>
+        </div>
+        <div class="form-row mb">
+          <input class="inp" id="tItem" placeholder="预警项描述(如 控制柜异响)">
+          <input class="inp" id="tActual" placeholder="实际值">
+          <button class="btn btn-p btn-sm" onclick="triggerWarn()">触发预警</button>
+        </div>
+        <div id="tResult" class="soft t-xs"></div>
+      </div>
+    </div>
+    <% } %>
+
+  </div>
+</main>
+</div>
+
+<div class="overlay" id="detailOverlay" style="display:none">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-hd"><span class="modal-tt" id="detailTitle">预警详情</span><button class="modal-cls" onclick="App.closeModal('detailOverlay')">×</button></div>
+    <div class="modal-bd" id="detailBody" style="max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}
+  function lvl(s){
+    var m={'critical':'red','urgent':'amber','high':'red','medium':'orange','low':'green'};
+    return '<span class="tag '+esc(m[s]||'blue')+'">'+esc(s||'')+'</span>';
+  }
+  function st(s){
+    var m={'OPEN':'blue','ACKNOWLEDGED':'amber','RESOLVED':'green','DISMISSED':'soft'};
+    return '<span class="tag '+esc(m[s]||'blue')+'">'+esc(s||'')+'</span>';
+  }
+
+  window.loadWarnings=function(){
+    var ps=Object.entries({status:document.getElementById('fltStatus').value,level:document.getElementById('fltLevel').value,deviceId:document.getElementById('fltDevice').value}).filter(function(e){return e[1];}).map(function(e){return e[0]+'='+encodeURIComponent(e[1]);}).join('&');
+    App.api('/api/warnings'+(ps?'?'+ps:'')).then(function(d){
+      var data=d.data||[];
+      if(!data.length){document.getElementById('wBody').innerHTML='<tr><td colspan="8" class="center muted" style="padding:16px">暂无预警事件</td></tr>';return;}
+      document.getElementById('wBody').innerHTML=data.map(function(x){
+        return '<tr>'+
+          '<td>'+lvl(x.warning_level)+'</td>'+
+          '<td class="soft">'+esc(x.warning_type)+'</td>'+
+          '<td class="cell-main">'+(x.warning_item?'<b>'+esc(x.warning_item)+'</b> ':'')+'<br><span class="t-xs soft">阈值:'+esc(x.threshold_value||'—')+' 实际:'+esc(x.actual_value||'—')+'</span></td>'+
+          '<td class="soft">'+esc(x.device_code||'#'+x.device_id)+'<br><span class="t-xs">'+esc(x.device_name||'')+'</span></td>'+
+          '<td class="soft t-xs">'+esc(x.trigger_source||'')+'</td>'+
+          '<td>'+st(x.status)+'</td>'+
+          '<td class="soft t-xs">'+esc((x.created_at||'').slice(0,19))+'</td>'+
+          '<td><button class="btn btn-o btn-xs" onclick="showDetail('+x.event_id+')">详情</button></td></tr>';
+      }).join('');
+    }).catch(function(){document.getElementById('wBody').innerHTML='<tr><td colspan="8" class="center" style="padding:16px">加载失败</td></tr>';});
+  };
+
+  window.showDetail=function(id){
+    App.api('/api/warnings/'+id).then(function(x){
+      var acts='';
+      if(x.status==='OPEN')
+        acts+='<button class="btn btn-p btn-sm" onclick="actOn('+id+',\'acknowledge\')">确认</button> '+
+              '<button class="btn btn-o btn-sm" onclick="actOn('+id+',\'resolve\')">解决</button> '+
+              '<button class="btn btn-o btn-sm" onclick="actOn('+id+',\'dismiss\')">忽略</button>';
+      else if(x.status==='ACKNOWLEDGED')
+        acts+='<button class="btn btn-p btn-sm" onclick="actOn('+id+',\'resolve\')">解决</button> '+
+              '<button class="btn btn-o btn-sm" onclick="actOn('+id+',\'dismiss\')">忽略</button>';
+      document.getElementById('detailBody').innerHTML=
+        '<div class="kv-row"><div class="t-xs soft">级别</div><div>'+lvl(x.warning_level)+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">类型</div><div>'+esc(x.warning_type)+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">预警项</div><div>'+esc(x.warning_item||'—')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">设备</div><div>'+esc(x.device_code||'#'+x.device_id)+' · '+esc(x.device_name||'—')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">触发源</div><div>'+esc(x.trigger_source||'—')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">阈值/实际值</div><div>'+esc(x.threshold_value||'—')+' / '+esc(x.actual_value||'—')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">状态</div><div>'+st(x.status)+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">处理要求</div><div>'+esc(x.action_required||'—')+'</div></div>'+
+        (x.acknowledged_by?'<div class="kv-row"><div class="t-xs soft">确认人/时间</div><div>'+esc(x.acknowledged_by)+' '+esc((x.acknowledged_at||'').slice(0,19))+'</div></div>':'')+
+        (x.resolved_by?'<div class="kv-row"><div class="t-xs soft">解决人/时间</div><div>'+esc(x.resolved_by)+' '+esc((x.resolved_at||'').slice(0,19))+'</div></div>':'')+
+        (x.resolve_note?'<div class="kv-row"><div class="t-xs soft">备注</div><div>'+esc(x.resolve_note)+'</div></div>':'')+
+        '<div class="kv-row"><div class="t-xs soft">创建时间</div><div class="t-xs">'+esc((x.created_at||'').slice(0,19))+'</div></div>'+
+        (acts?'<div class="flex gap-s mt" style="margin-top:12px">'+acts+'</div>':'')+
+        '<div class="t-xs soft mt" style="margin-top:8px">通知日志</div>'+
+        '<div class="soft t-xs">'+(x.notificationLogs&&x.notificationLogs.length?x.notificationLogs.map(function(n){return esc(n.user_email||'')+' '+esc(n.channel||'')+' '+esc((n.sent_at||'').slice(0,19));}).join('<br>'):'暂无')+'</div>';
+      document.getElementById('detailTitle').textContent=esc(x.warning_type)+' · '+esc(x.warning_level)+' · '+(x.warning_item||'');
+      App.openModal('detailOverlay');
+    }).catch(function(){alert('加载详情失败');});
+  };
+
+  window.actOn=function(id,action){
+    var note=prompt('备注（可选）:');
+    App.api('/api/warnings/'+id+'/'+action,{method:'POST',body:JSON.stringify({note:note||''})}).then(function(d){
+      if(d.success){App.closeModal('detailOverlay');loadWarnings();} else alert(d.error||'操作失败');
+    }).catch(function(){alert('操作失败');});
+  };
+
+  window.triggerWarn=function(){
+    var dev=document.getElementById('tDevice').value;
+    if(!dev){alert('请选择设备');return;}
+    var body={deviceId:parseInt(dev,10),warningType:document.getElementById('tType').value,warningLevel:document.getElementById('tLevel').value,warningItem:document.getElementById('tItem').value.trim()||null,actualValue:document.getElementById('tActual').value.trim()||null};
+    App.api('/api/warnings/trigger',{method:'POST',body:JSON.stringify(body)}).then(function(d){
+      if(d.success){
+        document.getElementById('tResult').innerHTML='✅ 触发成功 ID='+d.event.event_id;
+        loadWarnings();loadStats();
+      } else alert(d.error||'触发失败');
+    }).catch(function(){alert('触发失败');});
+  };
+
+  function loadStats(){
+    App.api('/api/warnings/stats').then(function(d){
+      var byS={},byL={};
+      (d.byStatus||[]).forEach(function(x){byS[x.status]=x.cnt;});
+      (d.byLevel||[]).forEach(function(x){byL[x.warning_level]=x.cnt;});
+      document.getElementById('cntOpen').textContent=byS['OPEN']||0;
+      document.getElementById('cntAck').textContent=byS['ACKNOWLEDGED']||0;
+      document.getElementById('cntResolved').textContent=(byS['RESOLVED']||0)+(byS['DISMISSED']||0);
+      document.getElementById('cntCritical').textContent=(byL['urgent']||0)+(byL['critical']||0);
+    }).catch(function(){});
+  }
+
+  document.getElementById('fltStatus').addEventListener('change',loadWarnings);
+  document.getElementById('fltLevel').addEventListener('change',loadWarnings);
+  document.getElementById('fltDevice').addEventListener('change',loadWarnings);
+  loadWarnings();loadStats();
+})();
+</script>
+<%- include('partials/foot') %>

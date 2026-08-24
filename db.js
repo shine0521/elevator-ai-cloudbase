@@ -529,6 +529,47 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_ddi_device ON device_document_index(device_id);
     CREATE INDEX IF NOT EXISTS idx_ddi_doc ON device_document_index(doc_id);
     CREATE INDEX IF NOT EXISTS idx_dua_device ON device_update_by_ai(device_id);
+
+    -- ==================== M3 设备预警引擎（2.0 新增） ====================
+    -- 预警事件（设备状态变化/阈值超限触发，不可物理删除）
+    CREATE TABLE IF NOT EXISTS warning_event (
+      event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER REFERENCES elevator_device(id) ON DELETE CASCADE,
+      warning_type TEXT NOT NULL CHECK(warning_type IN ('STATUS','THRESHOLD','DEADLINE','TREND')),
+      warning_level TEXT NOT NULL CHECK(warning_level IN ('low','medium','high','urgent','critical')),
+      warning_item TEXT,
+      trigger_source TEXT,
+      source_id TEXT,
+      warning_config_id INTEGER,
+      threshold_value TEXT,
+      actual_value TEXT,
+      action_required TEXT,
+      notified_users TEXT,
+      notification_time DATETIME,
+      status TEXT DEFAULT 'OPEN' CHECK(status IN ('OPEN','ACKNOWLEDGED','RESOLVED','DISMISSED')),
+      acknowledged_by TEXT,
+      acknowledged_at DATETIME,
+      resolved_by TEXT,
+      resolved_at DATETIME,
+      resolve_note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 通知日志（消息推送记录）
+    CREATE TABLE IF NOT EXISTS notification_log (
+      log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER REFERENCES warning_event(event_id) ON DELETE CASCADE,
+      user_email TEXT,
+      channel TEXT DEFAULT 'system',
+      message TEXT,
+      sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_we_device ON warning_event(device_id);
+    CREATE INDEX IF NOT EXISTS idx_we_status ON warning_event(status);
+    CREATE INDEX IF NOT EXISTS idx_we_level ON warning_event(warning_level);
+    CREATE INDEX IF NOT EXISTS idx_we_created ON warning_event(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_nl_event ON notification_log(event_id);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段（SQLite不支持IF NOT EXISTS，需try-catch）

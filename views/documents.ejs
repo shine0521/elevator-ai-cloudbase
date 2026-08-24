@@ -85,6 +85,12 @@
       document.getElementById('genResult').innerHTML='✅ 已生成 <b>'+esc(doc.docNumber)+'</b>（'+tag(doc.docType)+'）<br>PDF哈希 '+esc(doc.pdfHash.slice(0,16))+'…　Word哈希 '+esc(doc.wordHash.slice(0,16))+'…<br>'+
         '<a class="btn btn-o btn-xs" href="/api/documents/'+doc.docId+'/download?format=word" target="_blank">下载 Word</a> '+
         '<a class="btn btn-o btn-xs" href="/api/documents/'+doc.docId+'/download?format=pdf" target="_blank">下载 PDF</a>';
+      // M3: 设备字段更新后自动触发预警
+      if(dev && uf && body.newValue !== undefined){
+        App.api('/api/warnings/auto-trigger',{method:'POST',body:JSON.stringify({deviceId:dev,triggerSource:'DOC_GENERATION',sourceId:doc.docId,oldStatus:null,newValue:body.newValue})}).then(function(r){
+          if(r.triggered>0) document.getElementById('genResult').innerHTML+=' <span class="tag red">⚠ 触发'+r.triggered+'条预警</span>';
+        }).catch(function(){});
+      }
       loadDocs();
     }).catch(function(){alert('生成失败');});
   };
