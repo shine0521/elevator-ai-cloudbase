@@ -1,0 +1,155 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '设备报废', crumb: [{label:'业务与设备'},{label:'设备报废'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">设备报废</div>
+        <div class="pd">电梯报废处置 · 四级审批(技术部→安监部→分管副总→总经理) · 审批流 M0 共用（案例六）</div>
+      </div>
+    </div>
+
+    <div class="stats-row mb" id="sStats">
+      <div class="stat tone-blue" id="sP"><div class="sv" id="cntP">—</div><div class="sl">待审核</div></div>
+      <div class="stat tone-amber" id="sIn"><div class="sv" id="cntIn">—</div><div class="sl">审批中</div></div>
+      <div class="stat tone-green" id="sA"><div class="sv" id="cntA">—</div><div class="sl">已批准</div></div>
+      <div class="stat tone-red" id="sR"><div class="sv" id="cntR">—</div><div class="sl">已报废</div></div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h">
+        <div class="ct">报废记录</div>
+        <div class="flex gap-s">
+          <select class="sel sel-sm" id="fltS"><option value="">全部状态</option><option value="PENDING">待审核</option><option value="ASSESSING">评估中</option><option value="IN_APPROVAL">审批中</option><option value="APPROVED">已批准</option><option value="REJECTED">已拒绝</option><option value="SCRAPPED">已报废</option></select>
+          <select class="sel sel-sm" id="fltD"><option value="">全部设备</option><% devices.forEach(function(d){ %><option value="<%= d.id %>"><%= d.device_code %></option><% }) %></select>
+          <button class="btn btn-o btn-sm" onclick="load()">刷新</button>
+        </div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>设备</th><th>报废原因</th><th>评估报告号</th><th>状态</th><th>流程节点</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="tBody"></tbody></table></div>
+    </div>
+
+    <% if (user.role === 'admin') { %>
+    <div class="card mb">
+      <div class="card-h"><div class="ct">发起报废申请</div></div>
+      <div class="card-b" style="padding:16px">
+        <div class="form-row mb">
+          <select class="sel" id="nDevice"><option value="">选择设备 *</option><% devices.forEach(function(d){ %><option value="<%= d.id %>"><%= d.device_code %> · <%= d.device_name %></option><% }) %></select>
+          <input class="inp" id="nReason" placeholder="报废原因 *">
+          <input class="inp" id="nReportNo" placeholder="评估报告编号">
+        </div>
+        <div class="form-row mb">
+          <button class="btn btn-p btn-sm" onclick="create()">提交报废申请</button>
+        </div>
+        <div id="nResult" class="soft t-xs"></div>
+      </div>
+    </div>
+    <% } %>
+
+  </div>
+</main>
+</div>
+
+<div class="overlay" id="detailOverlay" style="display:none">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-hd"><span class="modal-tt">报废详情</span><button class="modal-cls" onclick="App.closeModal('detailOverlay')">×</button></div>
+    <div class="modal-bd" id="detailBody" style="max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}
+  function st(s){
+    var m={'PENDING':'blue','ASSESSING':'amber','IN_APPROVAL':'amber','APPROVED':'green','REJECTED':'red','SCRAPPED':'purple'};
+    return '<span class="tag '+esc(m[s]||'blue')+'">'+esc(s||'')+'</span>';
+  }
+  function nodeSt(s){
+    var m={'PENDING':'blue','APPROVED':'green','REJECTED':'red','SKIPPED':'soft'};
+    return '<span class="tag '+esc(m[s]||'blue')+'">'+esc(s||'')+'</span>';
+  }
+
+  window.load=function(){
+    var ps=Object.entries({status:document.getElementById('fltS').value,deviceId:document.getElementById('fltD').value}).filter(function(e){return e[1];}).map(function(e){return e[0]+'='+encodeURIComponent(e[1]);}).join('&');
+    App.api('/api/scrap'+(ps?'?'+ps:'')).then(function(d){
+      var rows=d.data||[];
+      if(!rows.length){document.getElementById('tBody').innerHTML='<tr><td colspan="7" class="center muted" style="padding:16px">暂无记录</td></tr>';return;}
+      document.getElementById('tBody').innerHTML=rows.map(function(x){
+        var nodeInfo='—';
+        if(x.nodes&&x.nodes.length){
+          var cur=(x.nodes.filter(function(n){return n.status==='PENDING'})[0]||{node_name:'已完成',status:'APPROVED'});
+          nodeInfo=esc(cur.node_name||'')+' '+nodeSt(cur.status);
+        }
+        return '<tr>'+
+          '<td class="cell-main"><b>'+esc(x.device_code||'#'+x.device_id)+'</b><br><span class="t-xs soft">'+esc(x.device_name||'')+'</span></td>'+
+          '<td class="cell-main">'+esc(x.scrap_reason||'—')+'</td>'+
+          '<td class="soft t-xs">'+esc(x.assessment_report_no||'—')+'</td>'+
+          '<td>'+st(x.status)+'</td>'+
+          '<td class="t-xs soft">'+nodeInfo+'</td>'+
+          '<td class="soft t-xs">'+esc((x.created_at||'').slice(0,19))+'</td>'+
+          '<td><button class="btn btn-o btn-xs" onclick="show('+x.id+')">详情</button></td></tr>';
+      }).join('');
+    }).catch(function(){document.getElementById('tBody').innerHTML='<tr><td colspan="7" class="center" style="padding:16px">加载失败</td></tr>';});
+  };
+
+  window.show=function(id){
+    App.api('/api/scrap/'+id).then(function(x){
+      var nodesHtml='';
+      if(x.nodes&&x.nodes.length){
+        nodesHtml='<div class="t-xs soft mt" style="margin-top:12px">四级审批节点</div>'+
+          '<div style="border:1px solid var(--border);border-radius:6px;overflow:hidden">'+
+          x.nodes.map(function(n){
+            return '<div style="display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);gap:8px;background:'+(n.status==='PENDING'?'var(--bg2)':'var(--bg1)')+'">'+
+              '<span style="min-width:18px;text-align:center;font-weight:bold;color:var(--text-dim)">'+n.node_seq+'</span>'+
+              '<span class="t-xs" style="flex:1">'+esc(n.node_name||'')+'</span>'+
+              '<span class="t-xs soft">'+esc(n.approver_email||'')+'</span>'+
+              nodeSt(n.status)+
+              (n.decided_at?'<span class="t-xs soft">'+esc(n.decided_at.slice(0,16))+'</span>':'')+'</div>';
+          }).join('')+'</div>';
+      }
+      document.getElementById('detailBody').innerHTML=
+        '<div class="kv-row"><div class="t-xs soft">设备</div><div><b>'+esc(x.device_code||'#'+x.device_id)+'</b> · '+esc(x.device_name||'—')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">状态</div><div>'+st(x.status)+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">报废原因</div><div>'+esc(x.scrap_reason||'—')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">评估报告编号</div><div>'+esc(x.assessment_report_no||'—')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">技术部</div><div>'+(x.tech_dept_approved?'✅ 已批准':'❌ 未批准')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">安监部</div><div>'+(x.safety_dept_approved?'✅ 已批准':'❌ 未批准')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">分管副总</div><div>'+(x.deputy_approved?'✅ 已批准':'❌ 未批准')+'</div></div>'+
+        '<div class="kv-row"><div class="t-xs soft">总经理</div><div>'+(x.gm_approved?'✅ 已批准':'❌ 未批准')+'</div></div>'+
+        (x.scrap_date?'<div class="kv-row"><div class="t-xs soft">实际报废日期</div><div>'+esc(x.scrap_date.slice(0,10))+'</div></div>':'')+
+        (x.disposal_record?'<div class="kv-row"><div class="t-xs soft">处置记录</div><div>'+esc(x.disposal_record)+'</div></div>':'')+
+        '<div class="kv-row"><div class="t-xs soft">创建人/时间</div><div>'+esc(x.created_by||'')+' '+esc((x.created_at||'').slice(0,19))+'</div></div>'+
+        nodesHtml;
+      App.openModal('detailOverlay');
+    }).catch(function(){alert('加载失败');});
+  };
+
+  window.create=function(){
+    var dev=document.getElementById('nDevice').value;
+    var reason=document.getElementById('nReason').value.trim();
+    if(!dev||!reason){alert('设备和报废原因为必填');return;}
+    var body={deviceId:parseInt(dev,10),scrapReason:reason,assessmentReportNo:document.getElementById('nReportNo').value.trim()||null};
+    App.api('/api/scrap',{method:'POST',body:JSON.stringify(body)}).then(function(d){
+      if(d.success){document.getElementById('nResult').innerHTML='✅ 提交成功 ID='+d.id;load();loadStats();
+      } else alert(d.error||'提交失败');
+    }).catch(function(){alert('提交失败');});
+  };
+
+  function loadStats(){
+    App.api('/api/scrap/stats').then(function(d){
+      var s={};(d.byStatus||[]).forEach(function(x){s[x.status]=x.cnt;});
+      document.getElementById('cntP').textContent=s['PENDING']||0;
+      document.getElementById('cntIn').textContent=(s['ASSESSING']||0)+(s['IN_APPROVAL']||0);
+      document.getElementById('cntA').textContent=(s['APPROVED']||0);
+      document.getElementById('cntR').textContent=(s['SCRAPPED']||0);
+    }).catch(function(){});
+  }
+
+  document.getElementById('fltS').addEventListener('change',load);
+  document.getElementById('fltD').addEventListener('change',load);
+  load();loadStats();
+})();
+</script>
+<%- include('partials/foot') %>

@@ -1737,6 +1737,179 @@ app.post('/api/warnings/:id/dismiss', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// 设备预警中心（M3）
+app.get('/warnings', pageAuth, (req, res) => {
+  const db = getDb();
+  const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
+  const stats = db.prepare("SELECT status, COUNT(*) as cnt FROM warning_event GROUP BY status").all();
+  const levelStats = db.prepare("SELECT warning_level, COUNT(*) as cnt FROM warning_event WHERE status IN ('OPEN','ACKNOWLEDGED') GROUP BY warning_level").all();
+  res.render('warnings', { title: '设备预警中心', user: req.user, devices, stats, levelStats });
+});
+
+// ==================== M6 七类流程实例化 ====================
+
+// --- 设备过户 ---
+app.get('/transfers', pageAuth, (req, res) => {
+  const db = getDb();
+  const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
+  const stats = db.prepare('SELECT status, COUNT(*) as cnt FROM ownership_transfer GROUP BY status').all();
+  res.render('transfers', { title: '设备过户', user: req.user, devices, stats });
+});
+
+app.get('/api/transfers', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, deviceId, q } = req.query;
+  const conds = [], params = [];
+  if (status) { conds.push('t.status = ?'); params.push(status); }
+  if (deviceId) { conds.push('t.device_id = ?'); params.push(deviceId); }
+  if (q) { conds.push('(t.old_owner LIKE ? OR t.new_owner LIKE ? OR d.device_code LIKE ?)'); params.push('%'+q+'%','%'+q+'%','%'+q+'%'); }
+  const where = conds.length ? 'WHERE '+conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT t.*, d.device_code, d.device_name FROM ownership_transfer t LEFT JOIN elevator_device d ON t.device_id=d.id ${where} ORDER BY t.created_at DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+app.get('/api/transfers/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const byStatus = db.prepare('SELECT status, COUNT(*) as cnt FROM ownership_transfer GROUP BY status').all();
+  res.json({ total: byStatus.reduce((s,x)=>s+x.cnt,0), byStatus });
+});
+
+app.get('/api/transfers/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const t = db.prepare('SELECT t.*, d.device_code, d.device_name FROM ownership_transfer t LEFT JOIN elevator_device d ON t.device_id=d.id WHERE t.id = ?').get(req.params.id);
+  if (!t) throw new NotFoundError('过户记录不存在');
+  const wf = t.workflow_id ? db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(t.workflow_id) : null;
+  const nodes = t.workflow_id ? db.prepare('SELECT * FROM approval_node WHERE approval_id = ? ORDER BY node_seq').all(t.workflow_id) : [];
+  res.json({ ...t, workflow: wf, nodes });
+});
+
+app.post('/api/transfers', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const { deviceId, oldOwner, oldContact, newOwner, newContact, newMaintenanceUnit, reason } = req.body;
+  if (!deviceId || !newOwner) throw new ValidationError('设备和新产权方为必填');
+  const device = db.prepare('SELECT id FROM elevator_device WHERE id = ?').get(deviceId);
+  if (!device) throw new ValidationError('设备不存在');
+  const result = db.transaction(() => {
+    const info = db.prepare(`INSERT INTO ownership_transfer (device_id, old_owner, old_contact, new_owner, new_contact, new_maintenance_unit, reason, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(deviceId, oldOwner||null, oldContact||null, newOwner, newContact||null, newMaintenanceUnit||null, reason||null, req.user.email);
+    const tid = info.lastInsertRowid;
+    // C-02 过户：资料审核(单人) + 现场核查(双人) + 法务审查(单人) → dual_review=1
+    const wfInfo = db.prepare(`INSERT INTO approval_workflow (business_type, business_id, business_title, status, dual_review, created_by) VALUES (?, ?, ?, 'PENDING', 1, ?)`).run('OWNERSHIP_TRANSFER', tid, `设备过户-${newOwner}`, req.user.email);
+    const wid = wfInfo.lastInsertRowid;
+    db.prepare('UPDATE ownership_transfer SET workflow_id = ? WHERE id = ?').run(wid, tid);
+    // 节点1：资料审核
+    db.prepare('INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, status) VALUES (?, 1, ?, ?, ?)').run(wid, '资料审核', 'auditor', 'PENDING');
+    // 节点2：现场核查（dual）
+    db.prepare('INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, status) VALUES (?, 2, ?, ?, ?)').run(wid, '现场核查(双人)', 'admin', 'PENDING');
+    // 节点3：法务审查
+    db.prepare('INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, status) VALUES (?, 3, ?, ?, ?)').run(wid, '法务审查', 'admin', 'PENDING');
+    db.prepare('UPDATE ownership_transfer SET status = ? WHERE id = ?').run('IN_REVIEW', tid);
+    return tid;
+  })();
+  logOperation('创建过户', req.user.email, 'ownership_transfer', result, `设备${deviceId}过户至${newOwner}`);
+  res.json({ success: true, id: result });
+});
+
+app.put('/api/transfers/:id', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const t = db.prepare('SELECT * FROM ownership_transfer WHERE id = ?').get(req.params.id);
+  if (!t) throw new NotFoundError('过户记录不存在');
+  if (t.status !== 'PENDING' && t.status !== 'IN_REVIEW') throw new ValidationError('当前状态不允许修改');
+  const { oldOwner, oldContact, newOwner, newContact, newMaintenanceUnit, reason } = req.body;
+  db.prepare('UPDATE ownership_transfer SET old_owner=?, old_contact=?, new_owner=?, new_contact=?, new_maintenance_unit=?, reason=?, updated_at=datetime("now") WHERE id = ?').run(oldOwner||null, oldContact||null, newOwner||null, newContact||null, newMaintenanceUnit||null, reason||null, req.params.id);
+  logOperation('修改过户', req.user.email, 'ownership_transfer', req.params.id, '修改过户信息');
+  res.json({ success: true });
+});
+
+app.delete('/api/transfers/:id', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const t = db.prepare('SELECT * FROM ownership_transfer WHERE id = ?').get(req.params.id);
+  if (!t) throw new NotFoundError('过户记录不存在');
+  if (t.workflow_id) throw new ValidationError('已有审批流程，请先撤销审批');
+  db.prepare('DELETE FROM ownership_transfer WHERE id = ?').run(req.params.id);
+  logOperation('删除过户', req.user.email, 'ownership_transfer', req.params.id, '删除过户记录');
+  res.json({ success: true });
+});
+
+// --- 设备报废 ---
+app.get('/scrap', pageAuth, (req, res) => {
+  const db = getDb();
+  const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
+  const stats = db.prepare('SELECT status, COUNT(*) as cnt FROM device_scrap GROUP BY status').all();
+  res.render('scrap', { title: '设备报废', user: req.user, devices, stats });
+});
+
+app.get('/api/scrap', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, deviceId, q } = req.query;
+  const conds = [], params = [];
+  if (status) { conds.push('s.status = ?'); params.push(status); }
+  if (deviceId) { conds.push('s.device_id = ?'); params.push(deviceId); }
+  if (q) { conds.push('(s.scrap_reason LIKE ? OR d.device_code LIKE ?)'); params.push('%'+q+'%','%'+q+'%'); }
+  const where = conds.length ? 'WHERE '+conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT s.*, d.device_code, d.device_name FROM device_scrap s LEFT JOIN elevator_device d ON s.device_id=d.id ${where} ORDER BY s.created_at DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+app.get('/api/scrap/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const byStatus = db.prepare('SELECT status, COUNT(*) as cnt FROM device_scrap GROUP BY status').all();
+  res.json({ total: byStatus.reduce((s,x)=>s+x.cnt,0), byStatus });
+});
+
+app.get('/api/scrap/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const s = db.prepare('SELECT s.*, d.device_code, d.device_name FROM device_scrap s LEFT JOIN elevator_device d ON s.device_id=d.id WHERE s.id = ?').get(req.params.id);
+  if (!s) throw new NotFoundError('报废记录不存在');
+  const wf = s.workflow_id ? db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(s.workflow_id) : null;
+  const nodes = s.workflow_id ? db.prepare('SELECT * FROM approval_node WHERE approval_id = ? ORDER BY node_seq').all(s.workflow_id) : [];
+  res.json({ ...s, workflow: wf, nodes });
+});
+
+app.post('/api/scrap', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const { deviceId, scrapReason, assessmentReportNo } = req.body;
+  if (!deviceId || !scrapReason) throw new ValidationError('设备和报废原因为必填');
+  const device = db.prepare('SELECT id FROM elevator_device WHERE id = ?').get(deviceId);
+  if (!device) throw new ValidationError('设备不存在');
+  const result = db.transaction(() => {
+    const info = db.prepare(`INSERT INTO device_scrap (device_id, scrap_reason, assessment_report_no, created_by) VALUES (?, ?, ?, ?)`).run(deviceId, scrapReason, assessmentReportNo||null, req.user.email);
+    const sid = info.lastInsertRowid;
+    // 报废审批流：技术部(1)→安监部(2)→分管副总(3)→总经理(4)，全部单人顺序
+    const wfInfo = db.prepare(`INSERT INTO approval_workflow (business_type, business_id, business_title, status, dual_review, created_by) VALUES (?, ?, ?, 'PENDING', 0, ?)`).run('DEVICE_SCRAP', sid, `设备报废-${scrapReason}`, req.user.email);
+    const wid = wfInfo.lastInsertRowid;
+    db.prepare('UPDATE device_scrap SET workflow_id = ? WHERE id = ?').run(wid, sid);
+    const nodeMap = [['技术部审批', 'admin'],['安监部审批', 'admin'],['分管副总审批', 'admin'],['总经理审批', 'admin']];
+    nodeMap.forEach(([name, role], i) => {
+      db.prepare('INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, status) VALUES (?, ?, ?, ?, ?)').run(wid, i+1, name, role, 'PENDING');
+    });
+    db.prepare('UPDATE device_scrap SET status = ? WHERE id = ?').run('IN_APPROVAL', sid);
+    return sid;
+  })();
+  logOperation('创建报废', req.user.email, 'device_scrap', result, `设备${deviceId}报废申请`);
+  res.json({ success: true, id: result });
+});
+
+app.put('/api/scrap/:id', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const s = db.prepare('SELECT * FROM device_scrap WHERE id = ?').get(req.params.id);
+  if (!s) throw new NotFoundError('报废记录不存在');
+  if (s.status !== 'PENDING' && s.status !== 'ASSESSING' && s.status !== 'IN_APPROVAL') throw new ValidationError('当前状态不允许修改');
+  const { scrapReason, assessmentReportNo, disposalRecord } = req.body;
+  db.prepare('UPDATE device_scrap SET scrap_reason=?, assessment_report_no=?, disposal_record=?, updated_at=datetime("now") WHERE id = ?').run(scrapReason||null, assessmentReportNo||null, disposalRecord||null, req.params.id);
+  logOperation('修改报废', req.user.email, 'device_scrap', req.params.id, '修改报废信息');
+  res.json({ success: true });
+});
+
+app.delete('/api/scrap/:id', authMiddleware, roleMiddleware('admin'), (req, res) => {
+  const db = getDb();
+  const s = db.prepare('SELECT * FROM device_scrap WHERE id = ?').get(req.params.id);
+  if (!s) throw new NotFoundError('报废记录不存在');
+  if (s.workflow_id) throw new ValidationError('已有审批流程，请先撤销审批');
+  db.prepare('DELETE FROM device_scrap WHERE id = ?').run(req.params.id);
+  logOperation('删除报废', req.user.email, 'device_scrap', req.params.id, '删除报废记录');
+  res.json({ success: true });
+});
+
 // ==================== API: 模板规则管理 ====================
 
 app.get('/api/templates/:id/rules', authMiddleware, (req, res) => {

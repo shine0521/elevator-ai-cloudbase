@@ -570,6 +570,51 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_we_level ON warning_event(warning_level);
     CREATE INDEX IF NOT EXISTS idx_we_created ON warning_event(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_nl_event ON notification_log(event_id);
+
+    -- ==================== M6 七类流程实例化（2.0 新增） ====================
+    -- 设备过户：使用登记证过户（案例三：产权方变更）
+    CREATE TABLE IF NOT EXISTS ownership_transfer (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL REFERENCES elevator_device(id) ON DELETE RESTRICT,
+      old_owner TEXT,
+      old_contact TEXT,
+      new_owner TEXT,
+      new_contact TEXT,
+      new_maintenance_unit TEXT,
+      reason TEXT,
+      status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING','IN_REVIEW','APPROVED','REJECTED','CANCELLED')),
+      documents_received INTEGER DEFAULT 0,
+      site_verified INTEGER DEFAULT 0,
+      legal_reviewed INTEGER DEFAULT 0,
+      workflow_id INTEGER,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 设备报废：电梯报废处置（案例六）
+    CREATE TABLE IF NOT EXISTS device_scrap (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL REFERENCES elevator_device(id) ON DELETE RESTRICT,
+      scrap_reason TEXT,
+      assessment_report_no TEXT,
+      tech_dept_approved INTEGER DEFAULT 0,
+      safety_dept_approved INTEGER DEFAULT 0,
+      deputy_approved INTEGER DEFAULT 0,
+      gm_approved INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING','ASSESSING','IN_APPROVAL','APPROVED','REJECTED','SCRAPPED')),
+      workflow_id INTEGER,
+      scrap_date DATETIME,
+      disposal_record TEXT,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ot_device ON ownership_transfer(device_id);
+    CREATE INDEX IF NOT EXISTS idx_ot_status ON ownership_transfer(status);
+    CREATE INDEX IF NOT EXISTS idx_ds_device ON device_scrap(device_id);
+    CREATE INDEX IF NOT EXISTS idx_ds_status ON device_scrap(status);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段（SQLite不支持IF NOT EXISTS，需try-catch）

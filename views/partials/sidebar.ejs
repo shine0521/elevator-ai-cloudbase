@@ -26,7 +26,7 @@ var NAV_ALIAS = {
   '': 'dashboard', 'dashboard': 'dashboard', 'index': 'dashboard', 'mobile': 'dashboard',
   'discriminate': 'discriminate', 'history': 'history', 'templates': 'templates',
   'knowledge': 'knowledge', 'audit': 'audit', 'research': 'research',
-  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle', 'documents': 'documents', 'warnings': 'warnings'
+  'logs': 'logs', 'settings': 'settings', 'approvals': 'approvals', 'template-lifecycle': 'template-lifecycle', 'documents': 'documents', 'warnings': 'warnings', 'transfers': 'transfers', 'scrap': 'scrap'
 };
 var navSegs = String(navPath).replace(/^\//, '').split('/').filter(Boolean);
 var navKeyRaw = (navSegs.length > 1 && navSegs[0] === 'mobile') ? navSegs[1] : (navSegs[0] || '');
@@ -96,6 +96,14 @@ function navCls(page){ return 'side-it' + (navPage === page ? ' on' : ''); }
     <a href="/warnings" class="<%= navCls('warnings') %>" data-page="warnings">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <span>设备预警中心</span>
+    </a>
+    <a href="/transfers" class="<%= navCls('transfers') %>" data-page="transfers">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M21 3l-7 7"/><path d="M3 3l7 7"/><path d="M16 21h5v-5"/><path d="M8 21H3v-5"/><path d="M21 21l-7-7"/><path d="M3 21l7-7"/></svg>
+      <span>设备过户</span>
+    </a>
+    <a href="/scrap" class="<%= navCls('scrap') %>" data-page="scrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+      <span>设备报废</span>
     </a>
     <% } %>
 
