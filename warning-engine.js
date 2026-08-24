@@ -64,7 +64,7 @@ function evaluateDevice(deviceId, triggerSource, sourceId) {
     if (triggered) {
       const result = db2.transaction(() => {
         const info = db2.prepare(
-          'SELECT event_id FROM warning_event WHERE device_id = ? AND warning_config_id = ? AND status = ? AND created_at > datetime("now","-1 hour")'
+          "SELECT event_id FROM warning_event WHERE device_id = ? AND warning_config_id = ? AND status = ? AND created_at > datetime('now','-1 hour')"
         ).get(deviceId, p.id, 'OPEN');
         if (info) return null; // 同设备同配置 1 小时内不重复触发
         const insert = db2.prepare(`
@@ -101,21 +101,21 @@ function createEvent({ deviceId, warningType, warningLevel, warningItem, trigger
 // 确认预警（人工确认：OPEN → ACKNOWLEDGED；urgent/critical 强制确认）
 function acknowledgeEvent(eventId, userEmail, note) {
   const db2 = db.getDb();
-  db2.prepare('UPDATE warning_event SET status = ?, acknowledged_by = ?, acknowledged_at = datetime("now"), resolve_note = COALESCE(resolve_note || ?, ?) WHERE event_id = ?')
+  db2.prepare("UPDATE warning_event SET status = ?, acknowledged_by = ?, acknowledged_at = datetime('now'), resolve_note = COALESCE(resolve_note || ?, ?) WHERE event_id = ?")
     .run('ACKNOWLEDGED', userEmail, note ? '\n' + note : '', note || null, eventId);
 }
 
 // 解决预警
 function resolveEvent(eventId, userEmail, note) {
   const db2 = db.getDb();
-  db2.prepare('UPDATE warning_event SET status = ?, resolved_by = ?, resolved_at = datetime("now"), resolve_note = ? WHERE event_id = ?')
+  db2.prepare("UPDATE warning_event SET status = ?, resolved_by = ?, resolved_at = datetime('now'), resolve_note = ? WHERE event_id = ?")
     .run('RESOLVED', userEmail, note || null, eventId);
 }
 
 // 忽略预警
 function dismissEvent(eventId, userEmail, note) {
   const db2 = db.getDb();
-  db2.prepare('UPDATE warning_event SET status = ?, acknowledged_by = COALESCE(acknowledged_by, ?), acknowledged_at = COALESCE(acknowledged_at, datetime("now")), resolve_note = ? WHERE event_id = ?')
+  db2.prepare("UPDATE warning_event SET status = ?, acknowledged_by = COALESCE(acknowledged_by, ?), acknowledged_at = COALESCE(acknowledged_at, datetime('now')), resolve_note = ? WHERE event_id = ?")
     .run('DISMISSED', userEmail, note || null, eventId);
 }
 
