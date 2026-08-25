@@ -2240,8 +2240,8 @@ app.post('/api/mobile/inspections/:id/submit', authMiddleware, asyncHandler(asyn
       // 创建审批流（安全员提交→技术经理审核）
       const workflowId = db.prepare(`
         INSERT INTO approval_workflow (business_type, business_id, business_title, status, current_node, created_by)
-        VALUES ('DAILY_INSPECTION', ?, ?, 'PENDING', 1, ?)
-      `).run('daily_inspection', req.params.id, `日管控检查-${insp.inspection_no}`, req.user.email).lastInsertRowid;
+        VALUES ('daily_inspection', ?, ?, 'PENDING', 1, ?)
+      `).run(req.params.id, `日管控检查-${insp.inspection_no}`, req.user.email).lastInsertRowid;
       db.prepare(`
         INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, status)
         VALUES (?, 1, '技术审核', 'auditor', 'PENDING')
