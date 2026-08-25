@@ -643,6 +643,61 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_ot_status ON ownership_transfer(status);
     CREATE INDEX IF NOT EXISTS idx_ds_device ON device_scrap(device_id);
     CREATE INDEX IF NOT EXISTS idx_ds_status ON device_scrap(status);
+
+    -- ==================== M6.2 日管控检查(74号令,移动端核心,案例四) ====================
+    -- 日管控检查主记录(每天每台设备一次)
+    CREATE TABLE IF NOT EXISTS daily_inspection (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inspection_no TEXT UNIQUE NOT NULL,        -- INS-20260825-001
+      device_id INTEGER NOT NULL REFERENCES elevator_device(id) ON DELETE RESTRICT,
+      check_date DATE NOT NULL,
+      inspector_id INTEGER NOT NULL REFERENCES users(id),
+      inspector_name TEXT,
+      template_id INTEGER REFERENCES templates(id),
+      template_version INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','ongoing','submitted','reviewed')),
+      gps_location TEXT,                          -- JSON: {lat, lng, address}
+      total_items INTEGER DEFAULT 0,
+      passed_items INTEGER DEFAULT 0,
+      failed_items INTEGER DEFAULT 0,
+      review_required INTEGER DEFAULT 0,
+      signature TEXT,                            -- 签名图片URL
+      submitted_at DATETIME,
+      reviewed_by TEXT,
+      reviewed_at DATETIME,
+      review_comment TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- 检查项记录(逐项比对,支持9种类型)
+    CREATE TABLE IF NOT EXISTS inspection_item (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inspection_id INTEGER NOT NULL REFERENCES daily_inspection(id) ON DELETE CASCADE,
+      field_id INTEGER REFERENCES template_fields(id),
+      item_seq INTEGER NOT NULL,
+      item_name TEXT NOT NULL,
+      item_category TEXT,                        -- 设备/环境/人员/管理
+      item_type TEXT NOT NULL,                   -- input/select/check/numeric/photo/ai_recognition/sensor_data/computed/signature
+      input_value TEXT,                          -- 用户输入值
+      standard_value TEXT,                       -- 模板标准值
+      compare_rule TEXT,                         -- JSON: 比对规则
+      compare_result TEXT CHECK(compare_result IN ('pass','fail','pending')),
+      ai_confidence REAL,                        -- AI 置信度(0.0~1.0)
+      ai_action TEXT,                            -- TRIGGER_REVIEW/TRIGGER_WARNING
+      review_required INTEGER DEFAULT 0,
+      fail_reason TEXT,
+      photos TEXT,                               -- JSON数组: 照片URL
+      gps_location TEXT,                         -- 该项的GPS(可选)
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_di_device ON daily_inspection(device_id);
+    CREATE INDEX IF NOT EXISTS idx_di_date ON daily_inspection(check_date);
+    CREATE INDEX IF NOT EXISTS idx_di_status ON daily_inspection(status);
+    CREATE INDEX IF NOT EXISTS idx_di_inspector ON daily_inspection(inspector_id);
+    CREATE INDEX IF NOT EXISTS idx_ii_inspection ON inspection_item(inspection_id);
+    CREATE INDEX IF NOT EXISTS idx_ii_result ON inspection_item(compare_result);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段(SQLite不支持IF NOT EXISTS,需try-catch)

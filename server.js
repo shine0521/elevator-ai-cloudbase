@@ -2046,6 +2046,244 @@ app.delete('/api/scrap/:id', authMiddleware, roleMiddleware('admin'), (req, res)
   res.json({ success: true });
 });
 
+// ==================== API: 日管控检查（M6.2,移动端核心,74号令） ====================
+
+// 生成检查单号
+function generateInspectionNo() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `INS-${date}-${rand}`;
+}
+
+// 日管控检查列表（支持按设备/日期/状态/检查人筛选）
+app.get('/api/mobile/inspections', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { deviceId, checkDate, status, inspectorId, q } = req.query;
+  const paging = parsePaging(req.query);
+  const conds = [], params = [];
+  if (deviceId) { conds.push('di.device_id = ?'); params.push(deviceId); }
+  if (checkDate) { conds.push('di.check_date = ?'); params.push(checkDate); }
+  if (status) { conds.push('di.status = ?'); params.push(status); }
+  if (inspectorId) { conds.push('di.inspector_id = ?'); params.push(inspectorId); }
+  if (q) { conds.push('(di.inspection_no LIKE ? OR ed.device_name LIKE ? OR ed.device_code LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) as count FROM daily_inspection di LEFT JOIN elevator_device ed ON di.device_id = ed.id ${where}`).get(...params).count;
+  const out = pagedResult(paging, total, (limit, offset) =>
+    db.prepare(`
+      SELECT di.*, ed.device_code, ed.device_name, ed.location
+      FROM daily_inspection di
+      LEFT JOIN elevator_device ed ON di.device_id = ed.id
+      ${where}
+      ORDER BY di.created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset)
+  );
+  out.data = dt.attachIsoAll(out.data, ['check_date', 'created_at', 'updated_at', 'submitted_at', 'reviewed_at']);
+  res.json(out);
+});
+
+// 日管控统计（按状态/日期/检查人）
+app.get('/api/mobile/inspections/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const byStatus = db.prepare(`SELECT status, COUNT(*) as c FROM daily_inspection GROUP BY status`).all();
+  const statusMap = { pending: 0, ongoing: 0, submitted: 0, reviewed: 0 };
+  byStatus.forEach(r => { statusMap[r.status] = r.c; });
+  const total = db.prepare('SELECT COUNT(*) as c FROM daily_inspection').get().c;
+  const todayCount = db.prepare(`SELECT COUNT(*) as c FROM daily_inspection WHERE check_date = ?`).get(new Date().toISOString().slice(0, 10)).c;
+  res.json({ total, todayCount, byStatus: statusMap });
+});
+
+// 日管控检查详情（含检查项列表）
+app.get('/api/mobile/inspections/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const insp = db.prepare(`
+    SELECT di.*, ed.device_code, ed.device_name, ed.device_type, ed.location, ed.status as device_status, ed.risk_level
+    FROM daily_inspection di
+    LEFT JOIN elevator_device ed ON di.device_id = ed.id
+    WHERE di.id = ?
+  `).get(req.params.id);
+  if (!insp) throw new NotFoundError('检查记录不存在');
+  const items = db.prepare('SELECT * FROM inspection_item WHERE inspection_id = ? ORDER BY item_seq, id').all(req.params.id);
+  res.json({ ...insp, items });
+});
+
+// 创建日管控检查任务（admin/auditor/operator）
+app.post('/api/mobile/inspections', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { deviceId, checkDate, templateId, templateVersion, inspectorId } = req.body;
+  if (!deviceId || !checkDate) throw new ValidationError('设备ID和检查日期为必填');
+
+  const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(deviceId);
+  if (!device) throw new NotFoundError('设备不存在');
+
+  const inspector = inspectorId ? db.prepare('SELECT * FROM users WHERE id = ?').get(inspectorId) : null;
+  if (inspectorId && !inspector) throw new NotFoundError('检查人不存在');
+
+  const inspectionNo = generateInspectionNo();
+  const id = db.prepare(`
+    INSERT INTO daily_inspection (inspection_no, device_id, check_date, inspector_id, inspector_name, template_id, template_version, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+  `).run(inspectionNo, deviceId, checkDate, inspectorId || req.user.id, inspector ? inspector.name : req.user.name, templateId || null, templateVersion || 1).lastInsertRowid;
+
+  logOperation('创建日管控检查', req.user.email, 'daily_inspection', id, `创建检查任务 ${inspectionNo} 设备:${device.device_name}`);
+  res.json({ success: true, id, inspectionNo, message: '检查任务创建成功' });
+}));
+
+// 更新检查进度（暂存,支持离线同步）
+app.put('/api/mobile/inspections/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const insp = db.prepare('SELECT * FROM daily_inspection WHERE id = ?').get(req.params.id);
+  if (!insp) throw new NotFoundError('检查记录不存在');
+  if (insp.status !== 'pending' && insp.status !== 'ongoing') throw new ValidationError('当前状态不允许修改');
+
+  const { status, gpsLocation, totalItems, passedItems, failedItems, reviewRequired } = req.body;
+  const newStatus = status || 'ongoing';
+  db.prepare(`
+    UPDATE daily_inspection
+    SET status=?, gps_location=?, total_items=?, passed_items=?, failed_items=?, review_required=?, updated_at=datetime('now')
+    WHERE id = ?
+  `).run(newStatus, gpsLocation || insp.gps_location, totalItems || insp.total_items, passedItems || insp.passed_items, failedItems || insp.failed_items, reviewRequired || insp.review_required, req.params.id);
+
+  res.json({ success: true, message: '检查进度已保存' });
+}));
+
+// 添加/更新检查项（逐项填报）
+app.post('/api/mobile/inspections/:id/items', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const insp = db.prepare('SELECT * FROM daily_inspection WHERE id = ?').get(req.params.id);
+  if (!insp) throw new NotFoundError('检查记录不存在');
+  if (insp.status !== 'pending' && insp.status !== 'ongoing') throw new ValidationError('当前状态不允许添加检查项');
+
+  const { items } = req.body; // items数组
+  if (!items || !Array.isArray(items) || items.length === 0) throw new ValidationError('检查项数组不能为空');
+
+  // 更新检查状态为ongoing
+  if (insp.status === 'pending') {
+    db.prepare("UPDATE daily_inspection SET status='ongoing', updated_at=datetime('now') WHERE id = ?").run(req.params.id);
+  }
+
+  const tx = db.transaction(() => {
+    for (const item of items) {
+      const {
+        fieldId, itemSeq, itemName, itemCategory, itemType, inputValue, standardValue, compareRule,
+        compareResult, aiConfidence, aiAction, reviewRequired, failReason, photos, gpsLocation
+      } = item;
+
+      // 检查是否已存在同序号项
+      const existing = db.prepare('SELECT id FROM inspection_item WHERE inspection_id = ? AND item_seq = ?').get(req.params.id, itemSeq);
+      if (existing) {
+        db.prepare(`
+          UPDATE inspection_item SET
+            field_id=?, item_name=?, item_category=?, item_type=?, input_value=?, standard_value=?, compare_rule=?,
+            compare_result=?, ai_confidence=?, ai_action=?, review_required=?, fail_reason=?, photos=?, gps_location=?
+          WHERE id = ?
+        `).run(fieldId||null, itemName, itemCategory, itemType, inputValue, standardValue, compareRule, compareResult, aiConfidence, aiAction, reviewRequired?1:0, failReason, photos, gpsLocation, existing.id);
+      } else {
+        db.prepare(`
+          INSERT INTO inspection_item (
+            inspection_id, field_id, item_seq, item_name, item_category, item_type, input_value, standard_value,
+            compare_rule, compare_result, ai_confidence, ai_action, review_required, fail_reason, photos, gps_location
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          req.params.id, fieldId||null, itemSeq, itemName, itemCategory, itemType, inputValue, standardValue, compareRule,
+          compareResult, aiConfidence, aiAction, reviewRequired?1:0, failReason, photos, gpsLocation
+        );
+      }
+    }
+
+    // 更新汇总统计
+    const stats = db.prepare(`
+      SELECT
+        COUNT(*) as total_items,
+        SUM(CASE WHEN compare_result='pass' THEN 1 ELSE 0 END) as passed_items,
+        SUM(CASE WHEN compare_result='fail' THEN 1 ELSE 0 END) as failed_items,
+        SUM(review_required) as review_required
+      FROM inspection_item WHERE inspection_id = ?
+    `).get(req.params.id);
+    db.prepare(`
+      UPDATE daily_inspection
+      SET total_items=?, passed_items=?, failed_items=?, review_required=?, updated_at=datetime('now')
+      WHERE id = ?
+    `).run(stats.total_items, stats.passed_items, stats.failed_items, stats.review_required, req.params.id);
+  });
+  tx();
+
+  res.json({ success: true, message: '检查项已保存' });
+}));
+
+// 提交检查（触发AI比对+报告生成+预警检测）
+app.post('/api/mobile/inspections/:id/submit', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const insp = db.prepare('SELECT * FROM daily_inspection WHERE id = ?').get(req.params.id);
+  if (!insp) throw new NotFoundError('检查记录不存在');
+  if (insp.status !== 'ongoing' && insp.status !== 'pending') throw new ValidationError('当前状态不允许提交');
+
+  const { signature } = req.body;
+  if (!signature) throw new ValidationError('签名不能为空');
+
+  const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(insp.device_id);
+  if (!device) throw new NotFoundError('设备不存在');
+
+  const tx = db.transaction(() => {
+    // 更新检查状态
+    db.prepare(`
+      UPDATE daily_inspection
+      SET status='submitted', signature=?, submitted_at=datetime('now'), updated_at=datetime('now')
+      WHERE id = ?
+    `).run(signature, req.params.id);
+
+    // 判断是否需要审核(R2规则: review_required>0 或 AI置信度<0.95)
+    const items = db.prepare('SELECT * FROM inspection_item WHERE inspection_id = ?').all(req.params.id);
+    const needReview = insp.review_required > 0 || items.some(i => i.ai_confidence && i.ai_confidence < 0.95);
+
+    if (needReview) {
+      // 创建审批流（安全员提交→技术经理审核）
+      const workflowId = db.prepare(`
+        INSERT INTO approval_workflow (business_type, business_id, business_title, status, current_node, created_by)
+        VALUES ('DAILY_INSPECTION', ?, ?, 'PENDING', 1, ?)
+      `).run('daily_inspection', req.params.id, `日管控检查-${insp.inspection_no}`, req.user.email).lastInsertRowid;
+      db.prepare(`
+        INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, status)
+        VALUES (?, 1, '技术审核', 'auditor', 'PENDING')
+      `).run(workflowId);
+      db.prepare('UPDATE daily_inspection SET review_required=1 WHERE id = ?').run(req.params.id);
+    } else {
+      // 直接生成报告
+      const docId = `DOC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      const docNumber = `DAILY-INS-${insp.inspection_no}`;
+      const docTitle = `日管控检查报告-${device.device_name}`;
+      db.prepare(`
+        INSERT INTO generated_document (doc_id, doc_type, doc_title, doc_number, generated_by, effective_date, status, device_id)
+        VALUES (?, 'DAILY_INSPECTION_REPORT', ?, ?, 'AI_ENGINE', ?, 'GENERATED', ?)
+      `).run(docId, docTitle, docNumber, insp.check_date, insp.device_id);
+      db.prepare(`
+        INSERT INTO device_document_index (device_id, doc_id, doc_type, is_latest)
+        VALUES (?, ?, 'DAILY_INSPECTION_REPORT', 1)
+      `).run(insp.device_id, docId);
+      db.prepare(`
+        UPDATE daily_inspection SET status='reviewed', reviewed_by='AI_ENGINE', reviewed_at=datetime('now') WHERE id = ?
+      `).run(req.params.id);
+
+      // 更新设备状态（如果有异常项）
+      const failedCount = insp.failed_items;
+      if (failedCount > 0) {
+        const oldStatus = device.status;
+        const newStatus = failedCount >= 3 ? 'WARNING' : 'ATTENTION';
+        db.prepare('UPDATE elevator_device SET status = ?, updated_at = datetime(?) WHERE id = ?').run(newStatus, 'now', insp.device_id);
+        db.prepare(`
+          INSERT INTO device_update_by_ai (device_id, source_type, source_id, field_name, old_value, new_value, updated_by)
+          VALUES (?, 'DAILY_INSPECTION', ?, 'status', ?, ?, 'AI_ENGINE')
+        `).run(insp.device_id, insp.inspection_no, oldStatus, newStatus);
+      }
+    }
+
+    logOperation('提交日管控检查', req.user.email, 'daily_inspection', req.params.id, `提交检查 ${insp.inspection_no}`);
+  });
+  tx();
+
+  res.json({ success: true, message: '检查已提交' });
+}));
+
 // ==================== API: 模板规则管理 ====================
 
 app.get('/api/templates/:id/rules', authMiddleware, (req, res) => {
