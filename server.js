@@ -2269,7 +2269,7 @@ app.post('/api/mobile/inspections/:id/submit', authMiddleware, asyncHandler(asyn
       if (failedCount > 0) {
         const oldStatus = device.status;
         const newStatus = failedCount >= 3 ? 'WARNING' : 'ATTENTION';
-        db.prepare('UPDATE elevator_device SET status = ?, updated_at = datetime(?) WHERE id = ?').run(newStatus, 'now', insp.device_id);
+        db.prepare("UPDATE elevator_device SET status = ?, updated_at = datetime('now') WHERE id = ?").run(newStatus, insp.device_id);
         db.prepare(`
           INSERT INTO device_update_by_ai (device_id, source_type, source_id, field_name, old_value, new_value, updated_by)
           VALUES (?, 'DAILY_INSPECTION', ?, 'status', ?, ?, 'AI_ENGINE')
