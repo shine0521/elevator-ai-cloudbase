@@ -697,6 +697,59 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_di_status ON daily_inspection(status);
     CREATE INDEX IF NOT EXISTS idx_di_inspector ON daily_inspection(inspector_id);
     CREATE INDEX IF NOT EXISTS idx_ii_inspection ON inspection_item(inspection_id);
+
+    // ==================== M6.3 隐患排查（LSEB风险评估+整改闭环） ====================
+    // 隐患清单（案例二 R-01风险分级管控）
+    CREATE TABLE IF NOT EXISTS hazard_check_list (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hazard_no TEXT UNIQUE NOT NULL,             -- HAZ-20260825-001
+      device_id INTEGER REFERENCES elevator_device(id) ON DELETE SET NULL,
+      hazard_type TEXT NOT NULL,                 -- 设备/环境/人员/管理
+      description TEXT NOT NULL,
+      lse_L INTEGER NOT NULL CHECK(lse_L BETWEEN 1 AND 5),  -- 可能性 1-5
+      lse_S INTEGER NOT NULL CHECK(lse_S BETWEEN 1 AND 5),  -- 严重性 1-5
+      lse_E INTEGER NOT NULL CHECK(lse_E BETWEEN 1 AND 5),  -- 暴露频次 1-5
+      risk_B INTEGER NOT NULL,                   -- 风险值 = L×S×E
+      risk_level TEXT NOT NULL CHECK(risk_level IN ('low','general','major','critical')),
+      rectify_advice TEXT,
+      deadline DATE,                             -- 整改期限（自动计算）
+      rectify_owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      rectify_owner_name TEXT,
+      photos TEXT,                               -- JSON数组: [{url,note}]
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','rectifying','verifying','closed')),
+      finder_id INTEGER NOT NULL REFERENCES users(id),
+      finder_name TEXT,
+      find_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+      gps_location TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    // 整改工单（M-10）
+    CREATE TABLE IF NOT EXISTS work_order (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_no TEXT UNIQUE NOT NULL,             -- WO-20260825-001
+      hazard_id INTEGER NOT NULL REFERENCES hazard_check_list(id) ON DELETE CASCADE,
+      device_id INTEGER REFERENCES elevator_device(id) ON DELETE SET NULL,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','rectifying','verifying','closed')),
+      rectify_description TEXT,
+      rectify_photos TEXT,                       -- JSON数组
+      rectify_by INTEGER REFERENCES users(id),
+      rectify_at DATETIME,
+      verify_description TEXT,
+      verify_photos TEXT,                        -- JSON数组
+      verify_by INTEGER REFERENCES users(id),
+      verify_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hcl_device ON hazard_check_list(device_id);
+    CREATE INDEX IF NOT EXISTS idx_hcl_status ON hazard_check_list(status);
+    CREATE INDEX IF NOT EXISTS idx_hcl_level ON hazard_check_list(risk_level);
+    CREATE INDEX IF NOT EXISTS idx_wo_hazard ON work_order(hazard_id);
+    CREATE INDEX IF NOT EXISTS idx_wo_status ON work_order(status);
+
     CREATE INDEX IF NOT EXISTS idx_ii_result ON inspection_item(compare_result);
   `);
 

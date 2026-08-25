@@ -2284,7 +2284,231 @@ app.post('/api/mobile/inspections/:id/submit', authMiddleware, asyncHandler(asyn
   res.json({ success: true, message: '检查已提交' });
 }));
 
+// ==================== API: 隐患排查（M6.3,LSEB风险评估+整改闭环） ====================
+
+// 生成隐患编号
+function generateHazardNo() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `HAZ-${date}-${random}`;
+}
+
+// 生成工单编号
+function generateWorkOrderNo() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `WO-${date}-${random}`;
+}
+
+// 计算风险等级和整改期限
+function calculateRisk(L, S, E) {
+  const B = L * S * E;
+  let level, deadline;
+  if (B <= 4) { level = 'low'; deadline = 30; }
+  else if (B <= 9) { level = 'general'; deadline = 15; }
+  else if (B <= 19) { level = 'major'; deadline = 7; }
+  else { level = 'critical'; deadline = 3; }
+  return { B, level, deadline };
+}
+
+// 隐患列表
+app.get('/api/mobile/hazards', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, riskLevel, deviceId, page = 1, pageSize = 20 } = req.query;
+  
+  let sql = `SELECT h.*, d.device_code, d.device_name, u.name as finder_name
+             FROM hazard_check_list h
+             LEFT JOIN elevator_device d ON h.device_id = d.id
+             LEFT JOIN users u ON h.finder_id = u.id
+             WHERE 1=1`;
+  const params = [];
+  
+  if (status) { sql += ' AND h.status = ?'; params.push(status); }
+  if (riskLevel) { sql += ' AND h.risk_level = ?'; params.push(riskLevel); }
+  if (deviceId) { sql += ' AND h.device_id = ?'; params.push(deviceId); }
+  
+  sql += ' ORDER BY h.find_time DESC';
+  
+  const result = pagedResult(sql, params, parseInt(page), parseInt(pageSize));
+  res.json(result);
+});
+
+// 隐患统计
+app.get('/api/mobile/hazards/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`
+    SELECT 
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+      SUM(CASE WHEN status = 'rectifying' THEN 1 ELSE 0 END) as rectifying,
+      SUM(CASE WHEN status = 'verifying' THEN 1 ELSE 0 END) as verifying,
+      SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed,
+      SUM(CASE WHEN risk_level = 'low' THEN 1 ELSE 0 END) as low,
+      SUM(CASE WHEN risk_level = 'general' THEN 1 ELSE 0 END) as general,
+      SUM(CASE WHEN risk_level = 'major' THEN 1 ELSE 0 END) as major,
+      SUM(CASE WHEN risk_level = 'critical' THEN 1 ELSE 0 END) as critical
+    FROM hazard_check_list
+  `).get();
+  res.json(stats);
+});
+
+// 隐患详情
+app.get('/api/mobile/hazards/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const hazard = db.prepare(`
+    SELECT h.*, d.device_code, d.device_name, d.location
+    FROM hazard_check_list h
+    LEFT JOIN elevator_device d ON h.device_id = d.id
+    WHERE h.id = ?
+  `).get(req.params.id);
+  
+  if (!hazard) throw new NotFoundError('隐患记录不存在');
+  
+  // 查询整改工单
+  const workOrder = db.prepare(`
+    SELECT w.*, u1.name as rectify_by_name, u2.name as verify_by_name
+    FROM work_order w
+    LEFT JOIN users u1 ON w.rectify_by = u1.id
+    LEFT JOIN users u2 ON w.verify_by = u2.id
+    WHERE w.hazard_id = ?
+  `).get(req.params.id);
+  
+  res.json({ ...hazard, workOrder });
+});
+
+// 创建隐患（LSEB评估）
+app.post('/api/mobile/hazards', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { deviceId, hazardType, description, lseL, lseS, lseE, rectifyAdvice, rectifyOwnerId, photos, gpsLocation } = req.body;
+  
+  if (!hazardType || !description || !lseL || !lseS || !lseE) {
+    throw new ValidationError('隐患类型、描述和LSEB评分为必填');
+  }
+  
+  // 验证设备存在
+  if (deviceId) {
+    const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(deviceId);
+    if (!device) throw new NotFoundError('设备不存在');
+  }
+  
+  // 计算风险等级和整改期限
+  const { B, level, deadline } = calculateRisk(parseInt(lseL), parseInt(lseS), parseInt(lseE));
+  
+  // 计算截止日期
+  const deadlineDate = new Date();
+  deadlineDate.setDate(deadlineDate.getDate() + deadline);
+  const deadlineStr = deadlineDate.toISOString().slice(0, 10);
+  
+  const hazardNo = generateHazardNo();
+  const rectifyOwner = rectifyOwnerId ? db.prepare('SELECT name FROM users WHERE id = ?').get(rectifyOwnerId) : null;
+  
+  const tx = db.transaction(() => {
+    const id = db.prepare(`
+      INSERT INTO hazard_check_list (
+        hazard_no, device_id, hazard_type, description,
+        lse_L, lse_S, lse_E, risk_B, risk_level,
+        rectify_advice, deadline, rectify_owner_id, rectify_owner_name,
+        photos, finder_id, finder_name, gps_location
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      hazardNo, deviceId || null, hazardType, description,
+      lseL, lseS, lseE, B, level,
+      rectifyAdvice || null, deadlineStr, rectifyOwnerId || null, rectifyOwner?.name || null,
+      photos ? JSON.stringify(photos) : null,
+      req.user.id, req.user.name, gpsLocation || null
+    ).lastInsertRowid;
+    
+    // 自动创建整改工单
+    const orderNo = generateWorkOrderNo();
+    db.prepare(`
+      INSERT INTO work_order (order_no, hazard_id, device_id, status)
+      VALUES (?, ?, ?, 'pending')
+    `).run(orderNo, id, deviceId || null);
+    
+    logOperation('创建隐患', req.user.email, 'hazard_check_list', id, 
+      `隐患${hazardNo} 风险等级=${level} B=${B} 整改期限=${deadlineStr}`);
+  });
+  tx();
+  
+  res.json({ 
+    success: true, 
+    hazardNo, 
+    risk: { B, level, deadline: deadlineStr },
+    message: '隐患记录创建成功，已自动生成整改工单' 
+  });
+}));
+
+// 更新隐患状态（整改进度）
+app.put('/api/mobile/hazards/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const hazard = db.prepare('SELECT * FROM hazard_check_list WHERE id = ?').get(req.params.id);
+  if (!hazard) throw new NotFoundError('隐患记录不存在');
+  
+  const { status, rectifyDescription, rectifyPhotos } = req.body;
+  
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE hazard_check_list SET status=?, updated_at=datetime('now') WHERE id = ?")
+      .run(status || hazard.status, req.params.id);
+    
+    // 更新工单
+    if (status === 'rectifying') {
+      db.prepare(`
+        UPDATE work_order SET status='rectifying', rectify_by=?, rectify_at=datetime('now'),
+               rectify_description=?, rectify_photos=?
+        WHERE hazard_id = ?
+      `).run(req.user.id, rectifyDescription || null, rectifyPhotos ? JSON.stringify(rectifyPhotos) : null, req.params.id);
+    }
+    
+    logOperation('更新隐患', req.user.email, 'hazard_check_list', req.params.id, `状态更新为${status}`);
+  });
+  tx();
+  
+  res.json({ success: true, message: '隐患状态已更新' });
+}));
+
+// 验收确认
+app.post('/api/mobile/hazards/:id/verify', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const hazard = db.prepare('SELECT * FROM hazard_check_list WHERE id = ?').get(req.params.id);
+  if (!hazard) throw new NotFoundError('隐患记录不存在');
+  if (hazard.status !== 'rectifying' && hazard.status !== 'verifying') {
+    throw new ValidationError('当前状态不允许验收');
+  }
+  
+  const { verifyDescription, verifyPhotos, pass } = req.body;
+  
+  const tx = db.transaction(() => {
+    if (pass) {
+      // 验收通过，闭环
+      db.prepare("UPDATE hazard_check_list SET status='closed', updated_at=datetime('now') WHERE id = ?")
+        .run(req.params.id);
+      db.prepare(`
+        UPDATE work_order SET status='closed', verify_by=?, verify_at=datetime('now'),
+               verify_description=?, verify_photos=?
+        WHERE hazard_id = ?
+      `).run(req.user.id, verifyDescription || null, verifyPhotos ? JSON.stringify(verifyPhotos) : null, req.params.id);
+      
+      logOperation('隐患验收通过', req.user.email, 'hazard_check_list', req.params.id, '闭环');
+    } else {
+      // 验收不通过，打回整改
+      db.prepare("UPDATE hazard_check_list SET status='rectifying', updated_at=datetime('now') WHERE id = ?")
+        .run(req.params.id);
+      db.prepare(`
+        UPDATE work_order SET status='rectifying', verify_by=?, verify_at=datetime('now'),
+               verify_description=?, verify_photos=?
+        WHERE hazard_id = ?
+      `).run(req.user.id, verifyDescription || null, verifyPhotos ? JSON.stringify(verifyPhotos) : null, req.params.id);
+      
+      logOperation('隐患验收不通过', req.user.email, 'hazard_check_list', req.params.id, '打回整改');
+    }
+  });
+  tx();
+  
+  res.json({ success: true, message: pass ? '隐患已闭环' : '已打回整改' });
+}));
+
 // ==================== API: 模板规则管理 ====================
+
 
 app.get('/api/templates/:id/rules', authMiddleware, (req, res) => {
   const db = getDb();
