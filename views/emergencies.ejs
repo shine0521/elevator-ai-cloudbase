@@ -1,0 +1,223 @@
+<%- include('partials/head') %>
+<div class="shell">
+<%- include('partials/sidebar', {user: user}) %>
+<main class="main">
+  <%- include('partials/topbar', {user: user, title: '应急救援', crumb: [{label:'业务与设备'},{label:'应急救援'}]}) %>
+  <div class="content">
+
+    <div class="page-hd">
+      <div>
+        <div class="pt">应急救援</div>
+        <div class="pd">电梯困人等突发事故处置 · M-13报警接入 + M-14处置执行(5步流程) · 自动通知安全总监/主要负责人（案例五）</div>
+      </div>
+      <% if (user.role === 'admin') { %>
+      <button class="btn btn-p" onclick="openAlarm()">+ 报警接入</button>
+      <% } %>
+    </div>
+
+    <div class="stats-row mb" id="sStats">
+      <div class="stat tone-red" id="sActive"><div class="sv" id="cntActive">—</div><div class="sl">进行中</div></div>
+      <div class="stat tone-amber" id="sP"><div class="sv" id="cntP">—</div><div class="sl">响应中</div></div>
+      <div class="stat tone-blue" id="sPro"><div class="sv" id="cntPro">—</div><div class="sl">处置中</div></div>
+      <div class="stat tone-purple" id="sRec"><div class="sv" id="cntRec">—</div><div class="sl">恢复中</div></div>
+      <div class="stat tone-green" id="sC"><div class="sv" id="cntC">—</div><div class="sl">已完成</div></div>
+    </div>
+
+    <div class="card mb">
+      <div class="card-h">
+        <div class="ct">应急事件</div>
+        <div class="flex gap-s">
+          <select class="sel sel-sm" id="fltS">
+            <option value="">全部状态</option>
+            <option value="responding">响应中</option>
+            <option value="processing">处置中</option>
+            <option value="recovering">恢复中</option>
+            <option value="completed">已完成</option>
+            <option value="cancelled">已取消</option>
+          </select>
+          <select class="sel sel-sm" id="fltT">
+            <option value="">全部类型</option>
+            <option value="困人">困人</option>
+            <option value="坠落">坠落</option>
+            <option value="剪切">剪切</option>
+            <option value="火灾">火灾</option>
+            <option value="扶梯伤人">扶梯伤人</option>
+            <option value="停电">停电</option>
+            <option value="自然灾害">自然灾害</option>
+            <option value="其他">其他</option>
+          </select>
+          <button class="btn btn-o btn-sm" onclick="load()">刷新</button>
+        </div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>事件编号</th><th>设备</th><th>报警类型</th><th>被困人数</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="tBody"></tbody></table></div>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<div class="overlay" id="detailOverlay" style="display:none">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-h"><span id="dTitle">应急事件详情</span><button class="x" onclick="App.closeModal('detailOverlay')">×</button></div>
+    <div class="modal-b" id="dBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="alarmOverlay" style="display:none">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-h"><span>报警接入（M-13）</span><button class="x" onclick="App.closeModal('alarmOverlay')">×</button></div>
+    <div class="modal-b" style="padding:16px">
+      <div class="form-row mb">
+        <select class="sel" id="aDevice"><option value="">选择设备</option><% devices.forEach(function(d){ %><option value="<%= d.id %>"><%= d.device_code %> · <%= d.device_name %></option><% }) %></select>
+        <select class="sel" id="aType">
+          <option value="">报警类型 *</option>
+          <option value="困人">困人</option>
+          <option value="坠落">坠落</option>
+          <option value="剪切">剪切</option>
+          <option value="火灾">火灾</option>
+          <option value="扶梯伤人">扶梯伤人</option>
+          <option value="停电">停电</option>
+          <option value="自然灾害">自然灾害</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <div class="form-row mb">
+        <input class="inp" id="aTrapped" type="number" min="0" placeholder="被困人数">
+        <input class="inp" id="aLocation" placeholder="事发位置">
+      </div>
+      <div class="form-row mb">
+        <input class="inp" id="aContact" placeholder="紧急联系人(JSON，如 [{name:安全总监,phone:138...}])">
+      </div>
+      <div class="form-row mb">
+        <textarea class="inp" id="aDesc" rows="3" placeholder="情况描述 *"></textarea>
+      </div>
+      <button class="btn btn-p btn-sm" onclick="createAlarm()">接入报警并通知</button>
+      <div id="aResult" class="soft t-xs mt"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function esc(s){ if(s===null||s===undefined) return ''; return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  const STATUS_CN = { responding:'响应中', processing:'处置中', recovering:'恢复中', completed:'已完成', cancelled:'已取消' };
+  const STATUS_TONE = { responding:'red', processing:'amber', recovering:'purple', completed:'green', cancelled:'gray' };
+
+  function loadStats(){
+    App.api('/api/mobile/emergencies/stats').then(function(r){ return r.json(); }).then(function(s){
+      if(!s || s.error) return;
+      document.getElementById('cntActive').textContent = s.active || 0;
+      document.getElementById('cntP').textContent = s.responding || 0;
+      document.getElementById('cntPro').textContent = s.processing || 0;
+      document.getElementById('cntRec').textContent = s.recovering || 0;
+      document.getElementById('cntC').textContent = s.completed || 0;
+    }).catch(function(){});
+  }
+
+  function load(){
+    const s = document.getElementById('fltS').value;
+    const t = document.getElementById('fltT').value;
+    let url = '/api/mobile/emergencies?';
+    if(s) url += 'status=' + encodeURIComponent(s) + '&';
+    if(t) url += 'alarmType=' + encodeURIComponent(t) + '&';
+    App.api(url).then(function(r){ return r.json(); }).then(function(res){
+      const list = (res && res.data) || [];
+      const tb = document.getElementById('tBody');
+      if(!list.length){ tb.innerHTML = '<tr><td colspan="7" class="center-t soft">暂无应急事件</td></tr>'; return; }
+      tb.innerHTML = list.map(function(e){
+        const tone = STATUS_TONE[e.status] || 'gray';
+        return '<tr>'
+          + '<td class="mono">' + esc(e.event_no) + '</td>'
+          + '<td>' + esc(e.device_code || '—') + '</td>'
+          + '<td>' + esc(e.alarm_type) + '</td>'
+          + '<td>' + (e.trapped_count || 0) + '</td>'
+          + '<td><span class="tag tone-' + tone + '">' + (STATUS_CN[e.status] || e.status) + '</span></td>'
+          + '<td class="soft t-xs">' + esc(e.created_at) + '</td>'
+          + '<td><button class="btn btn-o btn-sm" onclick="openDetail(' + e.id + ')">详情</button></td>'
+          + '</tr>';
+      }).join('');
+    }).catch(function(){});
+  }
+
+  window.load = load;
+  window.openDetail = function(id){
+    App.api('/api/mobile/emergencies/' + id).then(function(r){ return r.json(); }).then(function(e){
+      if(e.error){ alert(e.error); return; }
+      const tone = STATUS_TONE[e.status] || 'gray';
+      const logs = (e.logs || []).map(function(l){
+        return '<div class="kv-row"><div><b>步骤' + l.step_seq + '：' + esc(l.step_name) + '</b>'
+          + (l.action ? '<div class="soft t-xs">' + esc(l.action) + '</div>' : '')
+          + '<div class="soft t-xs">' + esc(l.created_at) + '</div></div></div>';
+      }).join('') || '<div class="soft">暂无处置记录</div>';
+      const ntf = e.notified_users ? (JSON.parse(e.notified_users).join('、') || '—') : '—';
+      document.getElementById('dTitle').textContent = '应急事件 ' + e.event_no;
+      document.getElementById('dBody').innerHTML =
+        '<div class="kv-grid mb">'
+        + '<div><div class="sl">报警类型</div><div>' + esc(e.alarm_type) + '</div></div>'
+        + '<div><div class="sl">被困人数</div><div>' + (e.trapped_count || 0) + '</div></div>'
+        + '<div><div class="sl">状态</div><div><span class="tag tone-' + tone + '">' + (STATUS_CN[e.status] || e.status) + '</span></div></div>'
+        + '<div><div class="sl">事发位置</div><div>' + esc(e.location || '—') + '</div></div>'
+        + '<div><div class="sl">设备</div><div>' + esc(e.device_code || '—') + '</div></div>'
+        + '<div><div class="sl">通知人员</div><div>' + esc(ntf) + '</div></div>'
+        + '</div>'
+        + '<div class="pd mb">情况：' + esc(e.description || '—') + '</div>'
+        + '<div class="card-t">处置步骤时间线</div>'
+        + '<div class="mb">' + logs + '</div>'
+        + '<div class="form-row mb"><select class="sel" id="dStatus">'
+        + '<option value="responding">响应中</option><option value="processing">处置中</option><option value="recovering">恢复中</option><option value="completed">已完成</option><option value="cancelled">已取消</option>'
+        + '</select><button class="btn btn-o btn-sm" onclick="updateStatus(' + e.id + ')">更新状态</button></div>'
+        + '<div class="card-t">记录处置步骤</div>'
+        + '<div class="form-row mb"><input class="inp" id="lStep" placeholder="步骤名称(如:确认现场情况)"><input class="inp" id="lSeq" type="number" min="1" placeholder="序号" style="max-width:80px"></div>'
+        + '<div class="form-row mb"><input class="inp" id="lAction" placeholder="处置动作描述"></div>'
+        + '<button class="btn btn-p btn-sm" onclick="addLog(' + e.id + ')">记录步骤</button>';
+      App.openModal('detailOverlay');
+    }).catch(function(){});
+  };
+
+  window.updateStatus = function(id){
+    const status = document.getElementById('dStatus').value;
+    App.api('/api/mobile/emergencies/' + id, { method:'PUT', body: JSON.stringify({ status: status }) })
+      .then(function(r){ return r.json(); }).then(function(res){
+        if(res.success){ App.closeModal('detailOverlay'); load(); loadStats(); }
+        else alert(res.error || '更新失败');
+      }).catch(function(){});
+  };
+
+  window.addLog = function(id){
+    const stepName = document.getElementById('lStep').value;
+    const stepSeq = parseInt(document.getElementById('lSeq').value, 10);
+    const action = document.getElementById('lAction').value;
+    if(!stepName || !stepSeq){ alert('步骤名称与序号必填'); return; }
+    App.api('/api/mobile/emergencies/' + id + '/logs', { method:'POST', body: JSON.stringify({ stepSeq: stepSeq, stepName: stepName, action: action }) })
+      .then(function(r){ return r.json(); }).then(function(res){
+        if(res.success){ App.closeModal('detailOverlay'); openDetail(id); }
+        else alert(res.error || '记录失败');
+      }).catch(function(){});
+  };
+
+  window.openAlarm = function(){ App.openModal('alarmOverlay'); };
+  window.createAlarm = function(){
+    const deviceId = document.getElementById('aDevice').value || null;
+    const alarmType = document.getElementById('aType').value;
+    const trappedCount = parseInt(document.getElementById('aTrapped').value, 10) || 0;
+    const location = document.getElementById('aLocation').value;
+    const description = document.getElementById('aDesc').value;
+    const contactRaw = document.getElementById('aContact').value;
+    if(!alarmType){ alert('报警类型必填'); return; }
+    if(!description){ alert('情况描述必填'); return; }
+    let emergencyContact = null;
+    if(contactRaw){
+      try { emergencyContact = JSON.parse(contactRaw); } catch(err){ alert('紧急联系人JSON格式错误'); return; }
+    }
+    App.api('/api/mobile/emergencies', { method:'POST', body: JSON.stringify({
+      deviceId: deviceId, alarmType: alarmType, trappedCount: trappedCount, location: location, description: description, emergencyContact: emergencyContact
+    }) }).then(function(r){ return r.json(); }).then(function(res){
+      const el = document.getElementById('aResult');
+      if(res.success){ el.innerHTML = '<span style="color:#07C06D">✅ ' + esc(res.message) + ' 事件号 ' + esc(res.eventNo) + '</span>'; App.closeModal('alarmOverlay'); load(); loadStats(); }
+      else el.innerHTML = '<span style="color:#E64340">❌ ' + esc(res.error || '失败') + '</span>';
+    }).catch(function(){});
+  };
+
+  load(); loadStats();
+})();
+</script>

@@ -751,6 +751,58 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_wo_status ON work_order(status);
 
     CREATE INDEX IF NOT EXISTS idx_ii_result ON inspection_item(compare_result);
+
+    -- ==================== M6.4 应急救援（M-13报警接入 + M-14处置执行） ====================
+    -- 应急救援事件（案例五：电梯困人救援）
+    CREATE TABLE IF NOT EXISTS emergency_event (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_no TEXT UNIQUE NOT NULL,
+      device_id INTEGER REFERENCES elevator_device(id) ON DELETE SET NULL,
+      alarm_type TEXT NOT NULL CHECK(alarm_type IN ('困人','坠落','剪切','火灾','扶梯伤人','停电','自然灾害','其他')),
+      alarm_source TEXT DEFAULT '人工',
+      trapped_count INTEGER DEFAULT 0,
+      location TEXT,
+      description TEXT,
+      status TEXT DEFAULT 'responding' CHECK(status IN ('responding','processing','recovering','completed','cancelled')),
+      start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+      end_time DATETIME,
+      responder_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      notified_users TEXT,
+      emergency_contact TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS rescue_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER NOT NULL REFERENCES emergency_event(id) ON DELETE CASCADE,
+      step_seq INTEGER NOT NULL,
+      step_name TEXT NOT NULL,
+      action TEXT,
+      operator_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      photos TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ==================== M-17 消息通知中心 ====================
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_email TEXT NOT NULL,
+      category TEXT NOT NULL CHECK(category IN ('approval','warning','workorder','system','emergency')),
+      title TEXT NOT NULL,
+      content TEXT,
+      related_type TEXT,
+      related_id TEXT,
+      is_read INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ee_device ON emergency_event(device_id);
+    CREATE INDEX IF NOT EXISTS idx_ee_status ON emergency_event(status);
+    CREATE INDEX IF NOT EXISTS idx_rl_event ON rescue_log(event_id);
+    CREATE INDEX IF NOT EXISTS idx_msg_user ON messages(user_email);
+    CREATE INDEX IF NOT EXISTS idx_msg_unread ON messages(user_email, is_read);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段(SQLite不支持IF NOT EXISTS,需try-catch)

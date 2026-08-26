@@ -1974,6 +1974,20 @@ app.get('/scrap', pageAuth, (req, res) => {
   res.render('scrap', { title: '设备报废', user: req.user, devices, stats });
 });
 
+// 应急救援事件页面
+app.get('/emergencies', pageAuth, (req, res) => {
+  const db = getDb();
+  const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
+  const stats = db.prepare("SELECT status, COUNT(*) as cnt FROM emergency_event GROUP BY status").all();
+  res.render('emergencies', { title: '应急救援', user: req.user, devices, stats });
+});
+
+// 消息中心页面
+app.get('/messages', pageAuth, (req, res) => {
+  const db = getDb();
+  res.render('messages', { title: '消息中心', user: req.user });
+});
+
 app.get('/api/scrap', authMiddleware, (req, res) => {
   const db = getDb();
   const { status, deviceId, q } = req.query;
@@ -2300,6 +2314,13 @@ function generateWorkOrderNo() {
   return `WO-${date}-${random}`;
 }
 
+// 生成应急救援事件编号
+function generateEmergencyNo() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `EMG-${date}-${random}`;
+}
+
 // 计算风险等级和整改期限
 function calculateRisk(L, S, E) {
   const B = L * S * E;
@@ -2508,6 +2529,167 @@ app.post('/api/mobile/hazards/:id/verify', authMiddleware, asyncHandler(async (r
   tx();
   
   res.json({ success: true, message: pass ? '隐患已闭环' : '已打回整改' });
+}));
+
+// ==================== M6.4 应急救援（M-13报警接入 + M-14处置执行） ====================
+
+// 应急救援事件列表
+app.get('/api/mobile/emergencies', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, alarmType, deviceId } = req.query;
+  const conds = [], params = [];
+  if (status) { conds.push('e.status = ?'); params.push(status); }
+  if (alarmType) { conds.push('e.alarm_type = ?'); params.push(alarmType); }
+  if (deviceId) { conds.push('e.device_id = ?'); params.push(deviceId); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT e.*, d.device_code, d.device_name
+    FROM emergency_event e LEFT JOIN elevator_device d ON e.device_id = d.id
+    ${where} ORDER BY e.created_at DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+// 应急救援事件统计
+app.get('/api/mobile/emergencies/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN status='responding' THEN 1 ELSE 0 END) as responding,
+    SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END) as processing,
+    SUM(CASE WHEN status='recovering' THEN 1 ELSE 0 END) as recovering,
+    SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status IN ('responding','processing','recovering') THEN 1 ELSE 0 END) as active
+    FROM emergency_event`).get();
+  res.json(stats);
+});
+
+// 应急救援事件详情
+app.get('/api/mobile/emergencies/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const event = db.prepare(`SELECT e.*, d.device_code, d.device_name, d.location as device_location
+    FROM emergency_event e LEFT JOIN elevator_device d ON e.device_id = d.id
+    WHERE e.id = ?`).get(req.params.id);
+  if (!event) throw new NotFoundError('应急事件不存在');
+  const logs = db.prepare('SELECT * FROM rescue_log WHERE event_id = ? ORDER BY step_seq ASC, created_at ASC').all(req.params.id);
+  res.json({ ...event, logs });
+});
+
+// M-13 报警接入：创建应急事件 + 通知相关人员
+app.post('/api/mobile/emergencies', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { deviceId, alarmType, alarmSource, trappedCount, location, description, emergencyContact } = req.body;
+  if (!alarmType) throw new ValidationError('报警类型必填');
+  if (deviceId) {
+    const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(deviceId);
+    if (!device) throw new NotFoundError('设备不存在');
+  }
+  const eventNo = generateEmergencyNo();
+  const tx = db.transaction(() => {
+    const id = db.prepare(`INSERT INTO emergency_event
+      (event_no, device_id, alarm_type, alarm_source, trapped_count, location, description, status, created_by, emergency_contact)
+      VALUES (?,?,?,?,?,?,?, 'responding', ?, ?)`)
+      .run(eventNo, deviceId || null, alarmType, alarmSource || '人工', trappedCount || 0, location || null, description || null, req.user.id, emergencyContact ? JSON.stringify(emergencyContact) : null)
+      .lastInsertRowid;
+    const admins = db.prepare("SELECT email, name FROM users WHERE role = 'admin'").all();
+    const notified = [];
+    for (const a of admins) {
+      notified.push(a.email);
+      db.prepare(`INSERT INTO messages (user_email, category, title, content, related_type, related_id)
+        VALUES (?, 'emergency', ?, ?, 'emergency', ?)`)
+        .run(a.email, `应急救援报警：${alarmType}`, `事件${eventNo} ${description || ''}`, String(id));
+    }
+    db.prepare('UPDATE emergency_event SET notified_users = ? WHERE id = ?').run(JSON.stringify(notified), id);
+    logOperation('应急报警接入', req.user.email, 'emergency_event', id, `报警类型=${alarmType} 事件${eventNo}`);
+    return id;
+  });
+  const id = tx();
+  res.json({ success: true, eventNo, id, message: '应急报警已接入，已通知相关人员' });
+}));
+
+// M-14 处置状态更新
+app.put('/api/mobile/emergencies/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const event = db.prepare('SELECT * FROM emergency_event WHERE id = ?').get(req.params.id);
+  if (!event) throw new NotFoundError('应急事件不存在');
+  const { status, responderId } = req.body;
+  const tx = db.transaction(() => {
+    let endTime = event.end_time;
+    if (status === 'completed' || status === 'cancelled') {
+      endTime = db.prepare("SELECT datetime('now') as t").get().t;
+    }
+    db.prepare("UPDATE emergency_event SET status=?, responder_id=?, end_time=?, updated_at=datetime('now') WHERE id = ?")
+      .run(status || event.status, responderId || event.responder_id, endTime, req.params.id);
+    logOperation('更新应急事件状态', req.user.email, 'emergency_event', req.params.id, `状态=${status}`);
+  });
+  tx();
+  res.json({ success: true, message: '处置状态已更新' });
+}));
+
+// M-14 处置步骤记录
+app.post('/api/mobile/emergencies/:id/logs', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const event = db.prepare('SELECT * FROM emergency_event WHERE id = ?').get(req.params.id);
+  if (!event) throw new NotFoundError('应急事件不存在');
+  const { stepSeq, stepName, action, photos } = req.body;
+  if (!stepSeq || !stepName) throw new ValidationError('处置步骤序号与名称必填');
+  db.prepare(`INSERT INTO rescue_log (event_id, step_seq, step_name, action, operator_id, photos)
+    VALUES (?,?,?,?,?,?)`)
+    .run(req.params.id, stepSeq, stepName, action || null, req.user.id, photos ? JSON.stringify(photos) : null);
+  logOperation('记录救援处置步骤', req.user.email, 'rescue_log', req.params.id, `步骤${stepSeq}:${stepName}`);
+  res.json({ success: true, message: '处置步骤已记录' });
+}));
+
+// ==================== M-17 消息通知中心 ====================
+
+// 消息列表
+app.get('/api/mobile/messages', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { category, isRead } = req.query;
+  const conds = ['user_email = ?'], params = [req.user.email];
+  if (category && category !== 'all') { conds.push('category = ?'); params.push(category); }
+  if (isRead !== undefined && isRead !== '') { conds.push('is_read = ?'); params.push(isRead); }
+  const where = 'WHERE ' + conds.join(' AND ');
+  const data = db.prepare(`SELECT * FROM messages ${where} ORDER BY created_at DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+// 未读统计
+app.get('/api/mobile/messages/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread,
+    SUM(CASE WHEN category = 'approval' AND is_read = 0 THEN 1 ELSE 0 END) as approvalUnread,
+    SUM(CASE WHEN category = 'warning' AND is_read = 0 THEN 1 ELSE 0 END) as warningUnread,
+    SUM(CASE WHEN category = 'workorder' AND is_read = 0 THEN 1 ELSE 0 END) as workorderUnread,
+    SUM(CASE WHEN category = 'emergency' AND is_read = 0 THEN 1 ELSE 0 END) as emergencyUnread
+    FROM messages WHERE user_email = ?`).get(req.user.email);
+  res.json(stats);
+});
+
+// 标记已读
+app.post('/api/mobile/messages/:id/read', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  db.prepare('UPDATE messages SET is_read = 1 WHERE id = ? AND user_email = ?').run(req.params.id, req.user.email);
+  res.json({ success: true, message: '已标记为已读' });
+}));
+
+// 全部已读
+app.post('/api/mobile/messages/read-all', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { category } = req.body || {};
+  if (category && category !== 'all') {
+    db.prepare('UPDATE messages SET is_read = 1 WHERE user_email = ? AND category = ?').run(req.user.email, category);
+  } else {
+    db.prepare('UPDATE messages SET is_read = 1 WHERE user_email = ?').run(req.user.email);
+  }
+  res.json({ success: true, message: '已全部标记为已读' });
+}));
+
+// 删除消息
+app.delete('/api/mobile/messages/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM messages WHERE id = ? AND user_email = ?').run(req.params.id, req.user.email);
+  res.json({ success: true, message: '消息已删除' });
 }));
 
 // ==================== API: 模板规则管理 ====================
