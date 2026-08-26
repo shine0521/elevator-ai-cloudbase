@@ -1,0 +1,90 @@
+<%- include('partials/head', { title: '月调度记录' }) %>
+<div class="shell">
+  <%- include('partials/sidebar') %>
+  <div class="main">
+    <%- include('partials/topbar', { title: '月调度记录' }) %>
+    <div class="content">
+      <div class="page-hd">
+        <div>
+          <h1>月调度记录</h1>
+          <p class="muted">月度安全调度会议（主要负责人主持）</p>
+        </div>
+        <% if (user && user.role === 'admin') { %>
+        <button class="btn primary" onclick="showCreate()">+ 新建月调度</button>
+        <% } %>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="card">
+        <table class="tbl">
+          <thead><tr><th>月份</th><th>主持人</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="list"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="detailModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>月调度详情</h3><button class="x" onclick="App.closeModal('detailModal')">×</button></div>
+    <div class="modal-bd" id="detailBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="createModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>新建月调度</h3><button class="x" onclick="App.closeModal('createModal')">×</button></div>
+    <div class="modal-bd">
+      <label>调度月份（如 2026-08）</label>
+      <input id="cMonth" class="inp" placeholder="2026-08" />
+      <label>主持人</label>
+      <input id="cHost" class="inp" placeholder="主要负责人姓名" />
+      <button class="btn primary" onclick="createMonthly()">创建</button>
+    </div>
+  </div>
+</div>
+<%- include('partials/foot') %>
+<script>
+(function(){
+  const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const st = {draft:'草稿',completed:'已完成'};
+  function loadStats(){
+    App.api('/api/mobile/monthly/stats').then(r=>{
+      const s = r||{};
+      document.getElementById('stats').innerHTML =
+        `<a class="stat"><b>${s.total||0}</b><span>总数</span></a>`+
+        `<a class="stat tone-green"><b>${s.completed||0}</b><span>已完成</span></a>`;
+    });
+  }
+  function loadList(){
+    App.api('/api/mobile/monthly').then(r=>{
+      const data = (r&&r.data)||[];
+      document.getElementById('list').innerHTML = data.map(m=>`
+        <tr><td>${esc(m.dispatch_month)}</td><td>${esc(m.host_name)}</td><td>${st[m.status]||m.status}</td>
+        <td><a class="lnk" onclick="showDetail(${m.id})">详情</a></td></tr>`).join('') || '<tr><td colspan="4" class="center-t muted">暂无数据</td></tr>';
+    });
+  }
+  window.showDetail = function(id){
+    App.api('/api/mobile/monthly/'+id).then(m=>{
+      let topics = []; try { topics = JSON.parse(m.topics||'[]'); } catch(e){}
+      const topicHtml = topics.length ? topics.map(t=>`<li>${esc(t)}</li>`).join('') : '<li>暂无议题</li>';
+      document.getElementById('detailBody').innerHTML =
+        `<p>月份：${esc(m.dispatch_month)} 主持人：${esc(m.host_name)} 状态：${st[m.status]||m.status}</p>`+
+        `<p><b>议题：</b></p><ul class="kv">${topicHtml}</ul>`+
+        (m.summary?`<p><b>纪要：</b>${esc(m.summary)}</p>`:'');
+      App.openModal('detailModal');
+    });
+  };
+  window.showCreate = function(){ App.openModal('createModal'); };
+  window.createMonthly = function(){
+    const month = document.getElementById('cMonth').value;
+    const host = document.getElementById('cHost').value;
+    if(!month){ alert('请填写调度月份'); return; }
+    App.api('/api/mobile/monthly',{method:'POST',body:JSON.stringify({dispatchMonth:month,hostName:host})}).then(r=>{
+      if(r&&r.success){ App.closeModal('createModal'); loadStats(); loadList(); }
+      else alert((r&&r.error)||'创建失败');
+    });
+  };
+  loadStats(); loadList();
+})();
+</script>

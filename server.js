@@ -1988,6 +1988,19 @@ app.get('/messages', pageAuth, (req, res) => {
   res.render('messages', { title: '消息中心', user: req.user });
 });
 
+// 周排查页面
+app.get('/weekly', pageAuth, (req, res) => {
+  const db = getDb();
+  const devices = db.prepare('SELECT id, device_code, device_name FROM elevator_device ORDER BY id').all();
+  res.render('weekly', { title: '周排查管理', user: req.user, devices });
+});
+
+// 月调度页面
+app.get('/monthly', pageAuth, (req, res) => {
+  const db = getDb();
+  res.render('monthly', { title: '月调度记录', user: req.user });
+});
+
 app.get('/api/scrap', authMiddleware, (req, res) => {
   const db = getDb();
   const { status, deviceId, q } = req.query;
@@ -2691,6 +2704,285 @@ app.delete('/api/mobile/messages/:id', authMiddleware, asyncHandler(async (req, 
   db.prepare('DELETE FROM messages WHERE id = ? AND user_email = ?').run(req.params.id, req.user.email);
   res.json({ success: true, message: '消息已删除' });
 }));
+
+// ==================== M6.5 周排查（M-05列表 + M-06执行，镜像日管控） ====================
+
+app.get('/api/mobile/weekly', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, deviceId, weekNo } = req.query;
+  const conds = [], params = [];
+  if (status) { conds.push('w.status = ?'); params.push(status); }
+  if (deviceId) { conds.push('w.device_id = ?'); params.push(deviceId); }
+  if (weekNo) { conds.push('w.week_no = ?'); params.push(weekNo); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT w.*, d.device_code, d.device_name FROM weekly_inspection w LEFT JOIN elevator_device d ON w.device_id = d.id ${where} ORDER BY w.created_at DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+app.get('/api/mobile/weekly/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) as pending, SUM(CASE WHEN status='ongoing' THEN 1 ELSE 0 END) as ongoing, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed FROM weekly_inspection`).get();
+  res.json(stats);
+});
+
+app.get('/api/mobile/weekly/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const w = db.prepare('SELECT w.*, d.device_code, d.device_name FROM weekly_inspection w LEFT JOIN elevator_device d ON w.device_id = d.id WHERE w.id = ?').get(req.params.id);
+  if (!w) throw new NotFoundError('周排查记录不存在');
+  const items = db.prepare('SELECT * FROM weekly_inspection_item WHERE inspection_id = ? ORDER BY item_seq ASC').all(req.params.id);
+  res.json({ ...w, items });
+});
+
+app.post('/api/mobile/weekly', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { deviceId, weekNo, templateId, gpsLocation } = req.body;
+  if (!deviceId) throw new ValidationError('设备必选');
+  const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(deviceId);
+  if (!device) throw new NotFoundError('设备不存在');
+  const no = 'WK-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
+  const id = db.prepare(`INSERT INTO weekly_inspection (inspection_no, device_id, week_no, inspector_id, inspector_name, template_id, status, gps_location) VALUES (?,?,?,?,?,?, 'ongoing', ?)`)
+    .run(no, deviceId, weekNo || '', req.user.id, req.user.name || req.user.email, templateId || null, gpsLocation ? JSON.stringify(gpsLocation) : null).lastInsertRowid;
+  logOperation('创建周排查', req.user.email, 'weekly_inspection', id, `周排查 ${no}`);
+  res.json({ success: true, id, inspectionNo: no, message: '周排查已创建' });
+}));
+
+app.put('/api/mobile/weekly/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const w = db.prepare('SELECT * FROM weekly_inspection WHERE id = ?').get(req.params.id);
+  if (!w) throw new NotFoundError('周排查不存在');
+  const { weekNo, gpsLocation, signature } = req.body;
+  db.prepare("UPDATE weekly_inspection SET week_no=?, gps_location=?, signature=?, updated_at=datetime('now') WHERE id = ?")
+    .run(weekNo || w.week_no, gpsLocation ? JSON.stringify(gpsLocation) : w.gps_location, signature || w.signature, req.params.id);
+  res.json({ success: true, message: '已更新' });
+}));
+
+app.post('/api/mobile/weekly/:id/items', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const w = db.prepare('SELECT * FROM weekly_inspection WHERE id = ?').get(req.params.id);
+  if (!w) throw new NotFoundError('周排查不存在');
+  const { itemName, itemCategory, itemType, inputValue, standardValue, compareResult, aiConfidence, photos, failReason } = req.body;
+  if (!itemName) throw new ValidationError('检查项名称必填');
+  const seq = db.prepare('SELECT COUNT(*) as c FROM weekly_inspection_item WHERE inspection_id = ?').get(req.params.id).c + 1;
+  db.prepare(`INSERT INTO weekly_inspection_item (inspection_id, item_seq, item_name, item_category, item_type, input_value, standard_value, compare_result, ai_confidence, photos, fail_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(req.params.id, seq, itemName, itemCategory || null, itemType || 'input', inputValue || null, standardValue || null, compareResult || 'pass', aiConfidence != null ? aiConfidence : null, photos ? JSON.stringify(photos) : null, failReason || null);
+  res.json({ success: true, message: '检查项已记录' });
+}));
+
+app.post('/api/mobile/weekly/:id/submit', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const w = db.prepare('SELECT * FROM weekly_inspection WHERE id = ?').get(req.params.id);
+  if (!w) throw new NotFoundError('周排查不存在');
+  if (w.status !== 'ongoing' && w.status !== 'pending') throw new ValidationError('当前状态不允许提交');
+  const { signature } = req.body;
+  if (!signature) throw new ValidationError('签名不能为空');
+  const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(w.device_id);
+  if (!device) throw new NotFoundError('设备不存在');
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE weekly_inspection SET status='completed', signature=?, submitted_at=datetime('now'), updated_at=datetime('now') WHERE id = ?").run(signature, req.params.id);
+    const items = db.prepare('SELECT * FROM weekly_inspection_item WHERE inspection_id = ?').all(req.params.id);
+    const failed = items.filter(i => i.compare_result === 'fail').length;
+    const needReview = w.review_required > 0 || items.some(i => i.ai_confidence && i.ai_confidence < 0.95);
+    if (needReview) {
+      const workflowId = db.prepare(`INSERT INTO approval_workflow (business_type, business_id, business_title, status, current_node, created_by) VALUES ('weekly_inspection', ?, ?, 'PENDING', 1, ?)`)
+        .run(req.params.id, `周排查-${w.inspection_no}`, req.user.email).lastInsertRowid;
+      db.prepare(`INSERT INTO approval_node (approval_id, node_seq, node_name, approver_role, status) VALUES (?, 1, '技术审核', 'auditor', 'PENDING')`).run(workflowId);
+    } else {
+      const docId = 'DOC-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+      const docNumber = 'WEEKLY-INS-' + w.inspection_no;
+      const docTitle = '周排查报告-' + device.device_name;
+      db.prepare(`INSERT INTO generated_document (doc_id, doc_type, doc_title, doc_number, generated_by, effective_date, status, device_id) VALUES (?, 'WEEKLY_INSPECTION_REPORT', ?, ?, 'AI_ENGINE', ?, 'GENERATED', ?)`)
+        .run(docId, docTitle, docNumber, w.week_no, w.device_id);
+      db.prepare(`INSERT INTO device_document_index (device_id, doc_id, doc_type, is_latest) VALUES (?, ?, 'WEEKLY_INSPECTION_REPORT', 1)`).run(w.device_id, docId);
+      if (failed > 0) {
+        const oldStatus = device.status;
+        const newStatus = failed >= 3 ? 'WARNING' : 'ATTENTION';
+        db.prepare("UPDATE elevator_device SET status = ?, updated_at = datetime('now') WHERE id = ?").run(newStatus, w.device_id);
+        db.prepare(`INSERT INTO device_update_by_ai (device_id, source_type, source_id, field_name, old_value, new_value, updated_by) VALUES (?, 'WEEKLY_INSPECTION', ?, 'status', ?, ?, 'AI_ENGINE')`).run(w.device_id, w.inspection_no, oldStatus, newStatus);
+      }
+    }
+    logOperation('提交周排查', req.user.email, 'weekly_inspection', req.params.id, `提交周排查 ${w.inspection_no}`);
+  });
+  tx();
+  res.json({ success: true, message: '周排查已提交' });
+}));
+
+// ==================== M-19 月调度记录 ====================
+
+app.get('/api/mobile/monthly', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, month } = req.query;
+  const conds = [], params = [];
+  if (status) { conds.push('status = ?'); params.push(status); }
+  if (month) { conds.push('dispatch_month = ?'); params.push(month); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  const data = db.prepare(`SELECT * FROM monthly_dispatch ${where} ORDER BY dispatch_month DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+app.get('/api/mobile/monthly/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed FROM monthly_dispatch`).get();
+  res.json(stats);
+});
+
+app.get('/api/mobile/monthly/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const m = db.prepare('SELECT * FROM monthly_dispatch WHERE id = ?').get(req.params.id);
+  if (!m) throw new NotFoundError('月调度记录不存在');
+  res.json({ ...m });
+});
+
+app.post('/api/mobile/monthly', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const { dispatchMonth, hostId, hostName, overview, topics, summary } = req.body;
+  if (!dispatchMonth) throw new ValidationError('调度月份必填');
+  const no = 'MON-' + dispatchMonth;
+  const id = db.prepare(`INSERT INTO monthly_dispatch (dispatch_no, dispatch_month, host_id, host_name, overview, topics, summary, status, created_by) VALUES (?,?,?,?,?,?,?, 'draft', ?)`)
+    .run(no, dispatchMonth, hostId || null, hostName || null, overview ? JSON.stringify(overview) : null, topics ? JSON.stringify(topics) : null, summary || null, req.user.id).lastInsertRowid;
+  logOperation('创建月调度', req.user.email, 'monthly_dispatch', id, `月调度 ${no}`);
+  res.json({ success: true, id, dispatchNo: no, message: '月调度已创建' });
+}));
+
+app.put('/api/mobile/monthly/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const m = db.prepare('SELECT * FROM monthly_dispatch WHERE id = ?').get(req.params.id);
+  if (!m) throw new NotFoundError('月调度不存在');
+  const { attendees, meetingPhotos, summary, status } = req.body;
+  db.prepare(`UPDATE monthly_dispatch SET attendees=?, meeting_photos=?, summary=?, status=?, updated_at=datetime('now') WHERE id = ?`)
+    .run(attendees ? JSON.stringify(attendees) : m.attendees, meetingPhotos ? JSON.stringify(meetingPhotos) : m.meeting_photos, summary || m.summary, status || m.status, req.params.id);
+  logOperation('更新月调度', req.user.email, 'monthly_dispatch', req.params.id, `月调度 ${m.dispatch_no}`);
+  res.json({ success: true, message: '月调度已更新' });
+}));
+
+// ==================== M-11 设备扫码查询 + M-12 设备详情 ====================
+
+app.get('/api/mobile/devices/scan', authMiddleware, (req, res) => {
+  const db = getDb();
+  const code = req.query.code;
+  if (!code) throw new ValidationError('二维码内容必填');
+  const device = db.prepare('SELECT * FROM elevator_device WHERE device_code = ?').get(code);
+  if (!device) throw new NotFoundError('未找到对应设备');
+  res.json({ ...device });
+});
+
+app.get('/api/mobile/devices/:id/detail', authMiddleware, (req, res) => {
+  const db = getDb();
+  const device = db.prepare('SELECT * FROM elevator_device WHERE id = ?').get(req.params.id);
+  if (!device) throw new NotFoundError('设备不存在');
+  const daily = db.prepare('SELECT id, inspection_no, check_date, status FROM daily_inspection WHERE device_id = ? ORDER BY check_date DESC LIMIT 20').all(req.params.id);
+  const weekly = db.prepare('SELECT id, inspection_no, week_no, status FROM weekly_inspection WHERE device_id = ? ORDER BY created_at DESC LIMIT 20').all(req.params.id);
+  const warnings = db.prepare('SELECT id, warning_type, warning_level, status, created_at FROM warning_event WHERE device_id = ? ORDER BY created_at DESC LIMIT 20').all(req.params.id);
+  const docs = db.prepare(`SELECT gd.doc_id, gd.doc_type, gd.doc_title, gd.doc_number, gd.status FROM device_document_index ddi JOIN generated_document gd ON ddi.doc_id = gd.doc_id WHERE ddi.device_id = ? ORDER BY gd.created_at DESC LIMIT 20`).all(req.params.id);
+  res.json({ device, daily, weekly, warnings, docs });
+});
+
+// ==================== M-15 移动审批待办 + M-16 审批处理（复用 M0） ====================
+
+app.get('/api/mobile/approvals', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, type } = req.query;
+  const conds = ['aw.status = ?'], params = ['PENDING'];
+  if (type && type !== 'all') { conds.push('aw.business_type = ?'); params.push(type); }
+  const where = 'WHERE ' + conds.join(' AND ');
+  const data = db.prepare(`SELECT aw.*, n.node_name, n.approver_role, n.approver_id FROM approval_workflow aw JOIN approval_node n ON aw.id = n.approval_id AND n.node_seq = aw.current_node ${where} ORDER BY aw.created_at DESC LIMIT 200`).all(...params);
+  res.json({ data });
+});
+
+app.get('/api/mobile/approvals/stats', authMiddleware, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='PENDING' THEN 1 ELSE 0 END) as pending, SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) as approved, SUM(CASE WHEN status='REJECTED' THEN 1 ELSE 0 END) as rejected FROM approval_workflow`).get();
+  res.json(stats);
+});
+
+app.get('/api/mobile/approvals/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  const nodes = db.prepare('SELECT * FROM approval_node WHERE approval_id = ? ORDER BY node_seq ASC').all(req.params.id);
+  res.json({ ...aw, nodes });
+});
+
+app.post('/api/mobile/approvals/:id/approve', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  if (aw.status !== 'PENDING') throw new ValidationError('审批单已结束');
+  const seq = aw.current_node;
+  const node = db.prepare('SELECT * FROM approval_node WHERE approval_id = ? AND node_seq = ?').get(req.params.id, seq);
+  if (!node || node.status !== 'PENDING') throw new ValidationError('节点异常');
+  if (!canActOnNode(req.user, node)) throw new ForbiddenError('无审批权限');
+  const { comment, aiComparisonSummary, aiConfidence } = req.body;
+  const totalNodes = db.prepare('SELECT COUNT(*) as c FROM approval_node WHERE approval_id = ?').get(req.params.id).c;
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE approval_node SET status='APPROVED', approver_email=?, approval_result=?, comment=?, ai_comparison_summary=?, ai_confidence=?, decided_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .run(req.user.email, comment || '通过', comment || null, aiComparisonSummary || null, aiConfidence != null ? aiConfidence : null, node.id);
+    if (seq < totalNodes) {
+      db.prepare('UPDATE approval_workflow SET current_node = ? WHERE id = ?').run(seq + 1, req.params.id);
+    } else {
+      db.prepare(`UPDATE approval_workflow SET status='APPROVED', completed_at=CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
+    }
+  });
+  tx();
+  logOperation('移动审批通过', req.user.email, 'approval_workflow', req.params.id, `节点${seq}通过`);
+  res.json({ success: true, message: '已通过' });
+}));
+
+app.post('/api/mobile/approvals/:id/reject', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  if (aw.status !== 'PENDING') throw new ValidationError('审批单已结束');
+  const seq = aw.current_node;
+  const node = db.prepare('SELECT * FROM approval_node WHERE approval_id = ? AND node_seq = ?').get(req.params.id, seq);
+  if (!node || node.status !== 'PENDING') throw new ValidationError('节点异常');
+  if (!canActOnNode(req.user, node)) throw new ForbiddenError('无审批权限');
+  const { comment } = req.body;
+  if (!comment || comment.length < 10) throw new ValidationError('驳回意见至少10字');
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE approval_node SET status='REJECTED', approver_email=?, comment=?, decided_at=CURRENT_TIMESTAMP WHERE id=?`).run(req.user.email, comment, node.id);
+    db.prepare(`UPDATE approval_workflow SET status='REJECTED', completed_at=CURRENT_TIMESTAMP WHERE id = ?`).run(req.params.id);
+  });
+  tx();
+  logOperation('移动审批驳回', req.user.email, 'approval_workflow', req.params.id, `节点${seq}驳回`);
+  res.json({ success: true, message: '已驳回' });
+}));
+
+app.post('/api/mobile/approvals/:id/forward', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const aw = db.prepare('SELECT * FROM approval_workflow WHERE id = ?').get(req.params.id);
+  if (!aw) throw new NotFoundError('审批单不存在');
+  if (aw.status !== 'PENDING') throw new ValidationError('审批单已结束');
+  const { forwardTo } = req.body;
+  if (!forwardTo) throw new ValidationError('转审目标必填');
+  const seq = aw.current_node;
+  const node = db.prepare('SELECT * FROM approval_node WHERE approval_id = ? AND node_seq = ?').get(req.params.id, seq);
+  if (!node || node.status !== 'PENDING') throw new ValidationError('节点异常');
+  db.prepare(`UPDATE approval_node SET approver_email=?, approver_id=?, status='PENDING' WHERE id=?`).run(forwardTo, forwardTo, node.id);
+  logOperation('移动审批转审', req.user.email, 'approval_workflow', req.params.id, `转审给 ${forwardTo}`);
+  res.json({ success: true, message: '已转审' });
+}));
+
+// ==================== 离线同步队列 sync_queue（移动端离线采集） ====================
+
+app.post('/api/mobile/sync', authMiddleware, asyncHandler(async (req, res) => {
+  const db = getDb();
+  const items = req.body.items || [];
+  if (!Array.isArray(items) || !items.length) throw new ValidationError('同步数据为空');
+  const results = [];
+  for (const it of items) {
+    const qid = db.prepare(`INSERT INTO sync_queue (user_id, user_email, entity_type, payload) VALUES (?,?,?,?)`)
+      .run(req.user.id, req.user.email, it.type || 'unknown', JSON.stringify(it.payload || it)).lastInsertRowid;
+    results.push({ queueId: qid, type: it.type });
+  }
+  logOperation('离线数据同步', req.user.email, 'sync_queue', results.length, `同步 ${results.length} 条`);
+  res.json({ success: true, received: results.length, message: '离线数据已接收，后台同步中' });
+}));
+
+app.get('/api/mobile/sync/status', authMiddleware, (req, res) => {
+  const db = getDb();
+  const stats = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) as pending, SUM(CASE WHEN status='synced' THEN 1 ELSE 0 END) as synced, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed FROM sync_queue WHERE user_id = ?`).get(req.user.id);
+  res.json(stats);
+});
 
 // ==================== API: 模板规则管理 ====================
 

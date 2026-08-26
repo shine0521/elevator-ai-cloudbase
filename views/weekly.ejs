@@ -1,0 +1,89 @@
+<%- include('partials/head', { title: '周排查管理' }) %>
+<div class="shell">
+  <%- include('partials/sidebar') %>
+  <div class="main">
+    <%- include('partials/topbar', { title: '周排查管理' }) %>
+    <div class="content">
+      <div class="page-hd">
+        <div>
+          <h1>周排查管理</h1>
+          <p class="muted">周排查检查（74号令周排查，镜像日管控）</p>
+        </div>
+        <% if (user && user.role === 'admin') { %>
+        <button class="btn primary" onclick="showCreate()">+ 新建周排查</button>
+        <% } %>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="card">
+        <table class="tbl">
+          <thead><tr><th>周次</th><th>设备</th><th>检查人</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="list"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="detailModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>周排查详情</h3><button class="x" onclick="App.closeModal('detailModal')">×</button></div>
+    <div class="modal-bd" id="detailBody"></div>
+  </div>
+</div>
+
+<div class="overlay" id="createModal">
+  <div class="modal">
+    <div class="modal-hd"><h3>新建周排查</h3><button class="x" onclick="App.closeModal('createModal')">×</button></div>
+    <div class="modal-bd">
+      <label>设备</label>
+      <select id="cDevice" class="inp"><option value="">--选择--</option><% devices.forEach(d=>{ %><option value="<%= d.id %>"><%= d.device_code %> <%= d.device_name %></option><% }) %></select>
+      <label>周次（如 2026-W35）</label>
+      <input id="cWeek" class="inp" placeholder="2026-W35" />
+      <button class="btn primary" onclick="createWeekly()">创建</button>
+    </div>
+  </div>
+</div>
+<%- include('partials/foot') %>
+<script>
+(function(){
+  const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const st = {pending:'待检查',ongoing:'进行中',completed:'已完成'};
+  function loadStats(){
+    App.api('/api/mobile/weekly/stats').then(r=>{
+      const s = r||{};
+      document.getElementById('stats').innerHTML =
+        `<a class="stat"><b>${s.total||0}</b><span>总数</span></a>`+
+        `<a class="stat tone-blue"><b>${s.pending||0}</b><span>待检查</span></a>`+
+        `<a class="stat tone-amber"><b>${s.ongoing||0}</b><span>进行中</span></a>`+
+        `<a class="stat tone-green"><b>${s.completed||0}</b><span>已完成</span></a>`;
+    });
+  }
+  function loadList(){
+    App.api('/api/mobile/weekly').then(r=>{
+      const data = (r&&r.data)||[];
+      document.getElementById('list').innerHTML = data.map(w=>`
+        <tr><td>${esc(w.week_no)}</td><td>${esc(w.device_code)} ${esc(w.device_name)}</td><td>${esc(w.inspector_name)}</td><td>${st[w.status]||w.status}</td>
+        <td><a class="lnk" onclick="showDetail(${w.id})">详情</a></td></tr>`).join('') || '<tr><td colspan="5" class="center-t muted">暂无数据</td></tr>';
+    });
+  }
+  window.showDetail = function(id){
+    App.api('/api/mobile/weekly/'+id).then(w=>{
+      const items = (w.items||[]).map(i=>`<li>${esc(i.item_name)}: <b>${i.compare_result||'--'}</b> ${i.fail_reason?('('+esc(i.fail_reason)+')'):''}</li>`).join('');
+      document.getElementById('detailBody').innerHTML =
+        `<p>周次：${esc(w.week_no)} 设备：${esc(w.device_name)} 状态：${st[w.status]||w.status}</p><ul class="kv">${items||'<li>暂无检查项</li>'}</ul>`;
+      App.openModal('detailModal');
+    });
+  };
+  window.showCreate = function(){ App.openModal('createModal'); };
+  window.createWeekly = function(){
+    const deviceId = document.getElementById('cDevice').value;
+    const weekNo = document.getElementById('cWeek').value;
+    if(!deviceId){ alert('请选择设备'); return; }
+    App.api('/api/mobile/weekly',{method:'POST',body:JSON.stringify({deviceId:Number(deviceId),weekNo})}).then(r=>{
+      if(r&&r.success){ App.closeModal('createModal'); loadStats(); loadList(); }
+      else alert((r&&r.error)||'创建失败');
+    });
+  };
+  loadStats(); loadList();
+})();
+</script>

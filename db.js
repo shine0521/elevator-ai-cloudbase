@@ -803,6 +803,95 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_rl_event ON rescue_log(event_id);
     CREATE INDEX IF NOT EXISTS idx_msg_user ON messages(user_email);
     CREATE INDEX IF NOT EXISTS idx_msg_unread ON messages(user_email, is_read);
+
+    -- ==================== M6.5 周排查（M-05列表 + M-06执行，镜像日管控） ====================
+    CREATE TABLE IF NOT EXISTS weekly_inspection (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inspection_no TEXT UNIQUE NOT NULL,        -- WK-20260826-001
+      device_id INTEGER NOT NULL REFERENCES elevator_device(id) ON DELETE RESTRICT,
+      week_no TEXT NOT NULL,                      -- 2026-W35
+      inspector_id INTEGER NOT NULL REFERENCES users(id),
+      inspector_name TEXT,
+      template_id INTEGER REFERENCES templates(id),
+      template_version INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','ongoing','completed')),
+      gps_location TEXT,
+      total_items INTEGER DEFAULT 0,
+      passed_items INTEGER DEFAULT 0,
+      failed_items INTEGER DEFAULT 0,
+      review_required INTEGER DEFAULT 0,
+      signature TEXT,
+      submitted_at DATETIME,
+      reviewed_by TEXT,
+      reviewed_at DATETIME,
+      review_comment TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS weekly_inspection_item (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inspection_id INTEGER NOT NULL REFERENCES weekly_inspection(id) ON DELETE CASCADE,
+      field_id INTEGER REFERENCES template_fields(id),
+      item_seq INTEGER NOT NULL,
+      item_name TEXT NOT NULL,
+      item_category TEXT,
+      item_type TEXT NOT NULL,
+      input_value TEXT,
+      standard_value TEXT,
+      compare_rule TEXT,
+      compare_result TEXT CHECK(compare_result IN ('pass','fail','pending')),
+      ai_confidence REAL,
+      ai_action TEXT,
+      review_required INTEGER DEFAULT 0,
+      fail_reason TEXT,
+      photos TEXT,
+      gps_location TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wi_device ON weekly_inspection(device_id);
+    CREATE INDEX IF NOT EXISTS idx_wi_week ON weekly_inspection(week_no);
+    CREATE INDEX IF NOT EXISTS idx_wi_status ON weekly_inspection(status);
+    CREATE INDEX IF NOT EXISTS idx_wii_inspection ON weekly_inspection_item(inspection_id);
+
+    -- ==================== M-19 月调度记录 ====================
+    CREATE TABLE IF NOT EXISTS monthly_dispatch (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      dispatch_no TEXT UNIQUE NOT NULL,           -- MON-2026-08
+      dispatch_month TEXT NOT NULL,                -- 2026-08
+      host_id INTEGER REFERENCES users(id),         -- 主持人=主要负责人
+      host_name TEXT,
+      overview TEXT,                                -- JSON: {checkCount, hazardCount, rectifyRate, accidentCount}
+      topics TEXT,                                  -- JSON: 议题列表
+      attendees TEXT,                               -- JSON: 签到
+      meeting_photos TEXT,                          -- JSON: 照片URL
+      summary TEXT,                                 -- 会议纪要
+      status TEXT DEFAULT 'draft' CHECK(status IN ('draft','completed')),
+      created_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_md_month ON monthly_dispatch(dispatch_month);
+    CREATE INDEX IF NOT EXISTS idx_md_status ON monthly_dispatch(status);
+
+    -- ==================== 离线同步队列 sync_queue（移动端离线采集） ====================
+    CREATE TABLE IF NOT EXISTS sync_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      user_email TEXT,
+      entity_type TEXT NOT NULL,                   -- daily_inspection/weekly_inspection/hazard/work_order
+      entity_id INTEGER,                           -- 同步成功后回填
+      payload TEXT NOT NULL,                       -- JSON: 离线采集数据
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','synced','failed')),
+      error_msg TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      synced_at DATETIME
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sq_user ON sync_queue(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sq_status ON sync_queue(status);
   `);
 
   // P0.1/P1.1: 为法规表添加增强字段(SQLite不支持IF NOT EXISTS,需try-catch)
