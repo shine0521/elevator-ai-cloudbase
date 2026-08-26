@@ -698,8 +698,8 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_di_inspector ON daily_inspection(inspector_id);
     CREATE INDEX IF NOT EXISTS idx_ii_inspection ON inspection_item(inspection_id);
 
-    // ==================== M6.3 隐患排查（LSEB风险评估+整改闭环） ====================
-    // 隐患清单（案例二 R-01风险分级管控）
+    -- ==================== M6.3 隐患排查（LSEB风险评估+整改闭环） ====================
+    -- 隐患清单（案例二 R-01风险分级管控）
     CREATE TABLE IF NOT EXISTS hazard_check_list (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       hazard_no TEXT UNIQUE NOT NULL,             -- HAZ-20260825-001
@@ -725,7 +725,7 @@ function initTables() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    // 整改工单（M-10）
+    -- 整改工单（M-10）
     CREATE TABLE IF NOT EXISTS work_order (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_no TEXT UNIQUE NOT NULL,             -- WO-20260825-001
