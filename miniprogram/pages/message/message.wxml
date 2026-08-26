@@ -1,0 +1,8 @@
+<view class="card">
+  <view bindtap="readAll" class="muted">全部已读</view>
+  <view wx:if="{{loading}}" class="muted">加载中...</view>
+  <view wx:for="{{list}}" wx:key="id" class="row" bindtap="read" data-id="{{item.id}}">
+    <view>{{item.title}}</view>
+    <view class="muted">{{item.content}}</view>
+  </view>
+</view>

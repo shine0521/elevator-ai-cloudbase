@@ -1,0 +1,6 @@
+<view class="card">
+  <view class="stat-num">{{user.name || '未登录'}}</view>
+  <view class="muted">{{user.email}}</view>
+  <view class="muted">角色：{{user.role}}</view>
+</view>
+<view class="card"><button bindtap="logout">退出登录</button></view>

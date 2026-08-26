@@ -1,0 +1,7 @@
+.login { padding: 120rpx 60rpx; text-align:center; }
+.logo { font-size:64rpx; font-weight:800; color:#1082FF; }
+.sub { color:#888; margin:16rpx 0 60rpx; }
+.wechat-btn { background:#07C06D; }
+.field { background:#fff; border-radius:12rpx; padding:20rpx; margin:16rpx 0; }
+.switch { margin-top:40rpx; color:#1082FF; font-size:26rpx; }
+.tip { margin-top:20rpx; }

@@ -1,0 +1,17 @@
+{
+  "description": "特种设备电梯安全管理移动端 (M-01~M-20)",
+  "packOptions": { "ignore": [], "include": [] },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "newFeature": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "3.4.0",
+  "appid": "wx29398ee686c61675",
+  "projectname": "elevator-mini",
+  "condition": {}
+}

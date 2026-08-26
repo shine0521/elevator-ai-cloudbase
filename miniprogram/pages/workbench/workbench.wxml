@@ -1,0 +1,26 @@
+<view class="wb">
+  <view class="card">
+    <view class="stat-row">
+      <view class="stat"><view class="stat-num">{{todo.inspections||0}}</view><view class="stat-label">日管控</view></view>
+      <view class="stat"><view class="stat-num">{{todo.weekly||0}}</view><view class="stat-label">周排查</view></view>
+      <view class="stat"><view class="stat-num">{{todo.hazards||0}}</view><view class="stat-label">隐患</view></view>
+    </view>
+    <view class="stat-row">
+      <view class="stat"><view class="stat-num">{{todo.approvals||0}}</view><view class="stat-label">待审批</view></view>
+      <view class="stat"><view class="stat-num">{{todo.workOrders||0}}</view><view class="stat-label">待整改</view></view>
+      <view class="stat"><view class="stat-num">{{warning.open||0}}</view><view class="stat-label">预警</view></view>
+    </view>
+  </view>
+
+  <view class="card" wx:if="{{warning.urgentCritical>0}}">
+    <view class="tag tag-red">紧急预警 {{warning.urgentCritical}} 条</view>
+  </view>
+
+  <view class="card">
+    <view class="grid">
+      <view class="grid-item" wx:for="{{grids}}" wx:key="key" bindtap="goGrid" data-key="{{item.key}}">
+        <view>{{item.label}}</view>
+      </view>
+    </view>
+  </view>
+</view>
