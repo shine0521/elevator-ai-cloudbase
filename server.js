@@ -2544,6 +2544,127 @@ app.post('/api/mobile/hazards/:id/verify', authMiddleware, asyncHandler(async (r
   res.json({ success: true, message: pass ? '隐患已闭环' : '已打回整改' });
 }));
 
+// ==================== M-10 整改工单（隐患整改闭环：维保人员整改 + 安全员验收） ====================
+app.get('/api/mobile/work-orders', authMiddleware, (req, res) => {
+  const db = getDb();
+  const { status, deviceId } = req.query;
+  const where = [];
+  const params = [];
+  if (status) { where.push('w.status = ?'); params.push(status); }
+  if (deviceId) { where.push('w.device_id = ?'); params.push(deviceId); }
+  const sql = `SELECT w.*, h.hazard_type, h.description as hazard_desc, h.risk_level,
+                     d.device_code, d.device_name,
+                     u1.name as rectify_by_name, u2.name as verify_by_name
+               FROM work_order w
+               LEFT JOIN hazard_check_list h ON w.hazard_id = h.id
+               LEFT JOIN elevator_device d ON w.device_id = d.id
+               LEFT JOIN users u1 ON w.rectify_by = u1.id
+               LEFT JOIN users u2 ON w.verify_by = u2.id
+               ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+               ORDER BY w.created_at DESC LIMIT 100`;
+  const rows = db.prepare(sql).all(...params);
+  res.json({ data: rows, total: rows.length });
+});
+
+app.get('/api/mobile/work-orders/:id', authMiddleware, (req, res) => {
+  const db = getDb();
+  const wo = db.prepare(`SELECT w.*, h.hazard_type, h.description as hazard_desc, h.risk_level, h.lse_L, h.lse_S, h.lse_E, h.risk_B,
+                                d.device_code, d.device_name,
+                                u1.name as rectify_by_name, u2.name as verify_by_name
+                         FROM work_order w
+                         LEFT JOIN hazard_check_list h ON w.hazard_id = h.id
+                         LEFT JOIN elevator_device d ON w.device_id = d.id
+                         LEFT JOIN users u1 ON w.rectify_by = u1.id
+                         LEFT JOIN users u2 ON w.verify_by = u2.id
+                         WHERE w.id = ?`).get(req.params.id);
+  if (!wo) throw new NotFoundError('工单不存在');
+  res.json(wo);
+});
+
+// 整改提交（维保人员）
+app.post('/api/mobile/work-orders/:id/rectify', authMiddleware, (req, res) => {
+  const db = getDb();
+  const wo = db.prepare('SELECT * FROM work_order WHERE id = ?').get(req.params.id);
+  if (!wo) throw new NotFoundError('工单不存在');
+  if (wo.status !== 'pending') throw new ValidationError('工单当前状态不可整改');
+  const { rectifyDescription, rectifyPhotos } = req.body;
+  db.prepare(`UPDATE work_order SET status='rectifying', rectify_by=?, rectify_at=datetime('now'), rectify_description=?, rectify_photos=? WHERE id = ?`)
+    .run(req.user.id, rectifyDescription || null, rectifyPhotos ? JSON.stringify(rectifyPhotos) : null, req.params.id);
+  logOperation('提交整改', req.user.email, 'work_order', req.params.id, '整改中');
+  res.json({ success: true, message: '整改已提交' });
+});
+
+// 验收（安全员）
+app.post('/api/mobile/work-orders/:id/verify', authMiddleware, (req, res) => {
+  const db = getDb();
+  const wo = db.prepare('SELECT * FROM work_order WHERE id = ?').get(req.params.id);
+  if (!wo) throw new NotFoundError('工单不存在');
+  if (wo.status !== 'rectifying') throw new ValidationError('工单当前状态不可验收');
+  const { verifyDescription, verifyPhotos, pass } = req.body;
+  const tx = db.transaction(() => {
+    if (pass) {
+      db.prepare(`UPDATE work_order SET status='closed', verify_by=?, verify_at=datetime('now'), verify_description=?, verify_photos=? WHERE id = ?`)
+        .run(req.user.id, verifyDescription || null, verifyPhotos ? JSON.stringify(verifyPhotos) : null, req.params.id);
+      logOperation('工单验收通过', req.user.email, 'work_order', req.params.id, '已闭环');
+    } else {
+      db.prepare(`UPDATE work_order SET status='pending', verify_by=?, verify_at=datetime('now'), verify_description=?, verify_photos=? WHERE id = ?`)
+        .run(req.user.id, verifyDescription || null, verifyPhotos ? JSON.stringify(verifyPhotos) : null, req.params.id);
+      logOperation('工单验收不通过', req.user.email, 'work_order', req.params.id, '打回待整改');
+    }
+  });
+  tx();
+  res.json({ success: true, message: pass ? '工单已闭环' : '已打回待整改' });
+});
+
+// ==================== M-02 移动工作台首页聚合统计 ====================
+app.get('/api/mobile/dashboard', authMiddleware, (req, res) => {
+  const db = getDb();
+  const inspectionsTodo = db.prepare(`SELECT COUNT(*) c FROM daily_inspection WHERE status IN ('pending','ongoing')`).get().c;
+  const weeklyTodo = db.prepare(`SELECT COUNT(*) c FROM weekly_inspection WHERE status IN ('pending','ongoing')`).get().c;
+  const hazardsTodo = db.prepare(`SELECT COUNT(*) c FROM hazard_check_list WHERE status IN ('pending','rectifying','verifying')`).get().c;
+  const approvalsTodo = db.prepare(`SELECT COUNT(*) c FROM approval_workflow WHERE status='PENDING' AND current_node=1`).get().c;
+  const workOrdersTodo = db.prepare(`SELECT COUNT(*) c FROM work_order WHERE status IN ('pending','rectifying')`).get().c;
+  const warningOpen = db.prepare(`SELECT COUNT(*) c FROM warning_event WHERE status='OPEN'`).get().c;
+  const warningUrgent = db.prepare(`SELECT COUNT(*) c FROM warning_event WHERE status='OPEN' AND warning_level IN ('urgent','critical')`).get().c;
+  res.json({
+    success: true,
+    todo: { inspections: inspectionsTodo, weekly: weeklyTodo, hazards: hazardsTodo, approvals: approvalsTodo, workOrders: workOrdersTodo },
+    warning: { open: warningOpen, urgentCritical: warningUrgent },
+    today: new Date().toISOString().slice(0, 10)
+  });
+});
+
+// ==================== M-01 微信小程序登录（需配置 WX_APPID / WX_SECRET 环境变量） ====================
+app.post('/api/mobile/auth/wechat', asyncHandler(async (req, res) => {
+  const appid = process.env.WX_APPID, secret = process.env.WX_SECRET;
+  if (!appid || !secret) {
+    return res.status(501).json({ success: false, error: '微信登录未配置（需设置 WX_APPID / WX_SECRET 环境变量）', code: 'NOT_CONFIGURED' });
+  }
+  const { code, userInfo } = req.body || {};
+  if (!code) return res.status(400).json({ success: false, error: '缺少 wx.login code', code: 'BAD_REQUEST' });
+  const wxUrl = `https://api.weixin.qq.com/sns/jscode2session?appid=${appid}&secret=${secret}&js_code=${code}&grant_type=authorization_code`;
+  const wxRes = await fetch(wxUrl);
+  const wx = await wxRes.json();
+  if (!wx.openid) return res.status(400).json({ success: false, error: '微信登录失败: ' + (wx.errmsg || 'unknown'), code: 'WX_ERROR' });
+  const db = getDb();
+  let user = db.prepare('SELECT * FROM users WHERE wechat_openid = ?').get(wx.openid);
+  if (!user) {
+    const email = 'wx_' + wx.openid.slice(0, 12) + '@wechat.local';
+    user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    if (!user) {
+      db.prepare(`INSERT INTO users (email, name, role, wechat_openid, status) VALUES (?,?,?,?,?)`)
+        .run(email, (userInfo && userInfo.nickName) || '微信用户', 'user', wx.openid, 'active');
+      user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    } else {
+      db.prepare('UPDATE users SET wechat_openid=? WHERE id=?').run(wx.openid, user.id);
+    }
+  }
+  const token = generateToken(user.email);
+  res.cookie('ev3_tok', token, secureCookieOpts(req, { maxAge: 24 * 60 * 60 * 1000 }));
+  logOperation('微信登录', user.email, 'users', user.id, '小程序登录');
+  res.json({ success: true, token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+}));
+
 // ==================== M6.4 应急救援（M-13报警接入 + M-14处置执行） ====================
 
 // 应急救援事件列表

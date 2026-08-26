@@ -116,7 +116,7 @@ function initTables() {
       template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
       field_name TEXT NOT NULL,
       field_label TEXT NOT NULL,
-      field_type TEXT NOT NULL CHECK(field_type IN ('text','number','date','select','textarea','checkbox','radio')),
+      field_type TEXT NOT NULL CHECK(field_type IN ('text','number','date','select','textarea','checkbox','radio','file','photo','signature','ai_recognition','sensor_data','computed')),
       required INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0,
       options TEXT,
@@ -995,6 +995,7 @@ function runMigrations() {
   addColumn('users', `mobile_roles TEXT`);   // JSON数组: ["safety_officer","inspector"]
   addColumn('users', `role_flags TEXT`);     // JSON对象: {"template_admin":false,"warning_admin":false}
   addColumn('users', `wechat_openid TEXT`);
+  migrateFieldTypeMobile();
 }
 
 /**
@@ -1044,6 +1045,60 @@ function migrateFieldTypeFile() {
     });
     tx();
     console.log('[DB] template_fields 已升级:支持 file 字段类型(原有列: ' + colList + ')');
+  } catch (e) {
+    console.warn('[DB] template_fields 升级失败(已回滚,不影响现有功能):', e.message);
+    try { db.exec('PRAGMA foreign_keys = ON;'); } catch (_) {}
+    try { db.exec('DROP TABLE IF EXISTS template_fields__new;'); } catch (_) {}
+  }
+}
+
+/**
+ * TM-02:移动端 M-04/M-06 模板动态渲染需 9 种比对项类型,
+ * 在 TM-01(8 种)基础上扩展 photo/signature/ai_recognition/sensor_data/computed。
+ * 重建表(同 TM-01 事务模式,失败回滚不丢数据)。
+ */
+function migrateFieldTypeMobile() {
+  let sql = '';
+  try {
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='template_fields'").get();
+    sql = row ? String(row.sql || '') : '';
+  } catch (e) { return; }
+  if (!sql || sql.includes("'photo'")) return; // 已支持移动端类型
+
+  const cols = db.prepare('PRAGMA table_info(template_fields)').all().map(c => c.name);
+  const colList = cols.join(', ');
+
+  try {
+    const tx = db.transaction(() => {
+      db.exec('PRAGMA foreign_keys = OFF;');
+      db.exec(`
+        CREATE TABLE template_fields__new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+          field_name TEXT NOT NULL,
+          field_label TEXT NOT NULL,
+          field_type TEXT NOT NULL CHECK(field_type IN ('text','number','date','select','textarea','checkbox','radio','file','photo','signature','ai_recognition','sensor_data','computed')),
+          required INTEGER DEFAULT 1,
+          sort_order INTEGER DEFAULT 0,
+          options TEXT,
+          default_value TEXT,
+          placeholder TEXT,
+          validation_rule TEXT,
+          help_text TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME
+        );
+      `);
+      const newCols = db.prepare('PRAGMA table_info(template_fields__new)').all().map(c => c.name);
+      const shared = cols.filter(c => newCols.includes(c));
+      db.exec(`INSERT INTO template_fields__new (${shared.join(', ')}) SELECT ${shared.join(', ')} FROM template_fields;`);
+      db.exec('DROP TABLE template_fields;');
+      db.exec('ALTER TABLE template_fields__new RENAME TO template_fields;');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_fields_template ON template_fields(template_id);');
+      db.exec('PRAGMA foreign_keys = ON;');
+    });
+    tx();
+    console.log('[DB] template_fields 已升级:支持移动端 9 种字段类型(原有列: ' + colList + ')');
   } catch (e) {
     console.warn('[DB] template_fields 升级失败(已回滚,不影响现有功能):', e.message);
     try { db.exec('PRAGMA foreign_keys = ON;'); } catch (_) {}
