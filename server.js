@@ -2871,7 +2871,7 @@ app.get('/api/mobile/devices/:id/detail', authMiddleware, (req, res) => {
   if (!device) throw new NotFoundError('设备不存在');
   const daily = db.prepare('SELECT id, inspection_no, check_date, status FROM daily_inspection WHERE device_id = ? ORDER BY check_date DESC LIMIT 20').all(req.params.id);
   const weekly = db.prepare('SELECT id, inspection_no, week_no, status FROM weekly_inspection WHERE device_id = ? ORDER BY created_at DESC LIMIT 20').all(req.params.id);
-  const warnings = db.prepare('SELECT id, warning_type, warning_level, status, created_at FROM warning_event WHERE device_id = ? ORDER BY created_at DESC LIMIT 20').all(req.params.id);
+  const warnings = db.prepare('SELECT event_id as id, warning_type, warning_level, status, created_at FROM warning_event WHERE device_id = ? ORDER BY created_at DESC LIMIT 20').all(req.params.id);
   const docs = db.prepare(`SELECT gd.doc_id, gd.doc_type, gd.doc_title, gd.doc_number, gd.status FROM device_document_index ddi JOIN generated_document gd ON ddi.doc_id = gd.doc_id WHERE ddi.device_id = ? ORDER BY gd.created_at DESC LIMIT 20`).all(req.params.id);
   res.json({ device, daily, weekly, warnings, docs });
 });
