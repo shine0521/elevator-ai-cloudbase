@@ -2314,23 +2314,26 @@ function calculateRisk(L, S, E) {
 // 隐患列表
 app.get('/api/mobile/hazards', authMiddleware, (req, res) => {
   const db = getDb();
-  const { status, riskLevel, deviceId, page = 1, pageSize = 20 } = req.query;
+  const { status, riskLevel, deviceId } = req.query;
+  const paging = parsePaging(req.query);
   
-  let sql = `SELECT h.*, d.device_code, d.device_name, u.name as finder_name
-             FROM hazard_check_list h
-             LEFT JOIN elevator_device d ON h.device_id = d.id
-             LEFT JOIN users u ON h.finder_id = u.id
-             WHERE 1=1`;
+  const conditions = [];
   const params = [];
+  if (status) { conditions.push('h.status = ?'); params.push(status); }
+  if (riskLevel) { conditions.push('h.risk_level = ?'); params.push(riskLevel); }
+  if (deviceId) { conditions.push('h.device_id = ?'); params.push(deviceId); }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   
-  if (status) { sql += ' AND h.status = ?'; params.push(status); }
-  if (riskLevel) { sql += ' AND h.risk_level = ?'; params.push(riskLevel); }
-  if (deviceId) { sql += ' AND h.device_id = ?'; params.push(deviceId); }
-  
-  sql += ' ORDER BY h.find_time DESC';
-  
-  const result = pagedResult(sql, params, parseInt(page), parseInt(pageSize));
-  res.json(result);
+  const total = db.prepare(`SELECT COUNT(*) as count FROM hazard_check_list h ${where}`).get(...params).count;
+  const out = pagedResult(paging, total, (limit, offset) =>
+    db.prepare(`SELECT h.*, d.device_code, d.device_name, d.location as device_location
+                FROM hazard_check_list h
+                LEFT JOIN elevator_device d ON h.device_id = d.id
+                ${where}
+                ORDER BY h.find_time DESC
+                LIMIT ? OFFSET ?`).all(...params, limit, offset)
+  );
+  res.json(out);
 });
 
 // 隐患统计
