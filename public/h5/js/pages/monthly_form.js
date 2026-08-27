@@ -61,19 +61,19 @@ window.Pages.monthly_form = {
         <div v-for="(f, idx) in fields" :key="f.id" class="card">
           <div class="fi-label">{{idx + 1}}. {{f.field_label || f.field_name || '检查项'}}<span class="req" v-if="f.required">*</span></div>
 
-          <input v-if="isTextOrNumber(f)" v-model="formData[f.id]"
+          <input v-if="isTextOrNumber(f)" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
             class="fi-input"
             :type="f.field_type === 'number' ? 'number' : 'text'"
             :disabled="isReadonly" :placeholder="f.placeholder || '请输入'">
 
-          <textarea v-else-if="f.field_type === 'textarea'" v-model="formData[f.id]"
+          <textarea v-else-if="f.field_type === 'textarea'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
             class="fi-input" :disabled="isReadonly" :placeholder="f.placeholder || '请输入'"
             style="min-height:70px"></textarea>
 
-          <input v-else-if="f.field_type === 'date'" v-model="formData[f.id]"
+          <input v-else-if="f.field_type === 'date'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
             class="fi-input" type="date" :disabled="isReadonly">
 
-          <select v-else-if="f.field_type === 'select'" v-model="formData[f.id]"
+          <select v-else-if="f.field_type === 'select'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
             class="fi-input" :disabled="isReadonly">
             <option value="">请选择</option>
             <option v-for="o in parseOpts(f)" :key="o" :value="o">{{o}}</option>
@@ -82,7 +82,7 @@ window.Pages.monthly_form = {
           <div v-else-if="f.field_type === 'radio'" class="opt-row">
             <label v-for="o in parseOpts(f)" :key="o" class="opt-chip"
               :class="{on: formData[f.id] === o}">
-              <input type="radio" :name="'f' + f.id" :value="o" v-model="formData[f.id]" :disabled="isReadonly">
+              <input type="radio" :name="'f' + f.id" :value="o" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" :disabled="isReadonly">
               {{o}}
             </label>
           </div>
@@ -102,7 +102,7 @@ window.Pages.monthly_form = {
             </button>
           </div>
 
-          <div v-else-if="f.field_type === 'signature'" v-model="formData[f.id]"
+          <div v-else-if="f.field_type === 'signature'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
             class="fi-input" :disabled="isReadonly" placeholder="请输入签名人姓名">签名人姓名</div>
 
           <div v-else class="fi-readonly">{{formData[f.id] || f.default_value || '—'}}</div>

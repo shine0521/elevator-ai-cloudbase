@@ -73,30 +73,30 @@ window.Pages.weekly_form = {
 
           <!-- text / number -->
           <input v-if="isTextType(f)"
-            v-model="formData[f.id]" class="fi-input"
+            :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" class="fi-input"
             :type="f.field_type === 'number' ? 'number' : 'text'"
             :disabled="viewMode" :placeholder="placeholderOf(f)">
           <!-- textarea -->
           <textarea v-else-if="f.field_type === 'textarea'"
-            v-model="formData[f.id]" class="fi-input"
+            :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" class="fi-input"
             :disabled="viewMode" :placeholder="placeholderOf(f)"></textarea>
           <!-- date -->
           <input v-else-if="f.field_type === 'date'"
-            v-model="formData[f.id]" class="fi-input" type="date" :disabled="viewMode">
+            :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" class="fi-input" type="date" :disabled="viewMode">
           <!-- select -->
           <select v-else-if="f.field_type === 'select'"
-            v-model="formData[f.id]" class="fi-input" :disabled="viewMode">
+            :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" class="fi-input" :disabled="viewMode">
             <option value="">请选择</option>
             <option v-for="o in opts(f)" :key="o" :value="o">{{o}}</option>
           </select>
           <!-- radio -->
           <label v-else-if="f.field_type === 'radio'" v-for="o in opts(f)" :key="o" class="opt">
-            <input type="radio" :name="'f' + f.id" :value="o" v-model="formData[f.id]" :disabled="viewMode"> {{o}}
+            <input type="radio" :name="'f' + f.id" :value="o" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" :disabled="viewMode"> {{o}}
           </label>
           <!-- checkbox -->
           <span v-else-if="f.field_type === 'checkbox'">
             <label v-for="o in opts(f)" :key="o" class="opt">
-              <input type="checkbox" :value="o" v-model="formData[f.id]" :disabled="viewMode"> {{o}}
+              <input type="checkbox" :value="o" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" :disabled="viewMode"> {{o}}
             </label>
           </span>
           <!-- photo / ai_recognition / file -->
@@ -109,7 +109,7 @@ window.Pages.weekly_form = {
           </div>
           <!-- signature -->
           <input v-else-if="f.field_type === 'signature'"
-            v-model="formData[f.id]" class="fi-input"
+            :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" class="fi-input"
             :disabled="viewMode" placeholder="签名人姓名">
           <!-- sensor_data / computed（只读） -->
           <div v-else class="fi-readonly">{{readonlyVal(f)}}</div>
