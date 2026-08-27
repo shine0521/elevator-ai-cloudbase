@@ -1,81 +1,90 @@
-// M-08 隐患排查列表 → H5 (Vue3 global build)
-// GET /api/mobile/hazards  |  风险等级彩标 + 统计栏 + 状态筛选
+// M-08 隐患排查列表 → H5 (Vue3 global build, 重构)
+// GET /api/mobile/hazards  {data:[], total}  支持 status / riskLevel / deviceId
+// 顶部风险筛选（横滑标签）+ 状态子筛选 + 隐患卡片 + FAB 上报
 window.Pages = window.Pages || {};
 window.Pages.hazard = {
   template: `
   <div class="page haz">
     <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
     <template v-else>
-      <!-- 统计栏（同时作为状态筛选） -->
-      <div class="stats-bar">
-        <div class="stat-item" :class="{active:activeTab==='all'}" @click="activeTab='all'">
-          <div class="stat-num">{{stats.all}}</div><div class="stat-label">全部</div>
+      <!-- 风险筛选（横向滚动） -->
+      <div class="risk-tabs">
+        <div v-for="t in riskTabs" :key="t.key" class="risk-tab" :class="riskActive(t.key)" @click="activeRisk = t.key">
+          <span class="dot" :class="t.dot"></span>{{t.label}}
         </div>
-        <div class="stat-item" :class="{active:activeTab==='pending'}" @click="activeTab='pending'">
-          <div class="stat-num warn">{{stats.pending}}</div><div class="stat-label">待整改</div>
-        </div>
-        <div class="stat-item" :class="{active:activeTab==='rectifying'}" @click="activeTab='rectifying'">
-          <div class="stat-num info">{{stats.rectifying}}</div><div class="stat-label">整改中</div>
-        </div>
-        <div class="stat-item" :class="{active:activeTab==='verifying'}" @click="activeTab='verifying'">
-          <div class="stat-num primary">{{stats.verifying}}</div><div class="stat-label">待验收</div>
-        </div>
-        <div class="stat-item" :class="{active:activeTab==='closed'}" @click="activeTab='closed'">
-          <div class="stat-num muted">{{stats.closed}}</div><div class="stat-label">已关闭</div>
+      </div>
+
+      <!-- 状态子筛选 -->
+      <div class="status-tabs">
+        <div v-for="s in statusTabs" :key="s.key" class="status-tab" :class="statusActive(s.key)" @click="activeStatus = s.key">
+          {{s.label}}
         </div>
       </div>
 
       <div class="list-wrap">
-        <div v-for="item in filteredList" :key="item.id" class="list-item card" @click="goDetail(item.id)">
-          <div class="item-main">
-            <div class="item-title">{{item.hazardType||item.hazard_type||item.deviceName||item.device_name||('隐患 #'+item.id)}}</div>
-            <span class="risk-badge" :class="riskClass(item)">{{riskLabel(item)}}</span>
+        <div v-for="item in filteredList" :key="item.id" class="hcard" @click="goDetail(item.id)">
+          <div class="hcard-top">
+            <div class="hcard-desc">{{item.description}}</div>
+            <span class="badge" :class="riskClass(item.risk_level)">{{riskLabel(item.risk_level)}}</span>
           </div>
-          <div class="item-sub muted">{{item.createTime||item.create_time||item.createdAt||item.created_at||''}} · {{statusLabel(item.status)}}</div>
+          <div class="hcard-sub muted">{{deviceLine(item)}}</div>
+          <div class="hcard-foot">
+            <span class="badge" :class="statusClass(item.status)">{{statusLabel(item.status)}}</span>
+            <span class="hcard-time muted">{{findTime(item)}}</span>
+          </div>
+          <div v-if="item.deadline" class="hcard-deadline">整改期限：{{item.deadline}}</div>
         </div>
         <div v-if="!filteredList.length" class="empty-state"><span class="muted">暂无隐患记录</span></div>
       </div>
     </template>
-    <button class="fab" @click="goForm">+</button>
+    <button class="fab" @click="goForm">上报隐患</button>
 
-    <style>
-      .haz .page, .haz.page { min-height: 100vh; background: var(--bg); padding-bottom: 80px; }
-      .haz .stats-bar { display:flex; background:#fff; padding:14px 0; border-bottom:1px solid var(--border); }
-      .haz .stat-item { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; }
-      .haz .stat-num { font-size:22px; font-weight:700; color:#333; }
-      .haz .stat-num.warn { color:#FF6600; }
-      .haz .stat-num.info { color:#1082FF; }
-      .haz .stat-num.primary { color:#09B44A; }
-      .haz .stat-num.muted { color:#888; }
-      .haz .stat-label { font-size:12px; color:#888; }
-      .haz .stat-item.active .stat-num { color:#1082FF; }
-      .haz .stat-item.active .stat-label { color:#1082FF; }
-      .haz .list-wrap { padding:12px; }
-      .haz .item-title { font-size:15px; font-weight:600; color:#333; }
-      .haz .item-sub { font-size:12px; color:#999; margin-top:6px; }
-      /* 风险彩标 */
-      .haz .risk-badge { display:inline-block; padding:2px 10px; border-radius:6px; font-size:12px; }
-      .haz .risk-critical { background:#FFF1F0; color:#CF1322; }
-      .haz .risk-major    { background:#FFF7E6; color:#D46B08; }
-      .haz .risk-general  { background:#FFFBE6; color:#7CB305; }
-      .haz .risk-low      { background:#F6FFED; color:#389E0D; }
-      .haz .muted { color:#999; }
-      .haz .empty-state { text-align:center; padding:40px 0; }
-    </style>
   </div>
   `,
   data() {
     return {
       loading: true,
       list: [],
-      activeTab: 'all',
-      stats: { all: 0, pending: 0, rectifying: 0, verifying: 0, closed: 0 }
+      activeRisk: 'all',
+      activeStatus: 'all',
+      riskTabs: [
+        { key: 'all', label: '全部', dot: 'dot-gray' },
+        { key: 'critical', label: '重大', dot: 'dot-red' },
+        { key: 'major', label: '较大', dot: 'dot-orange' },
+        { key: 'general', label: '一般', dot: 'dot-yellow' },
+        { key: 'low', label: '低', dot: 'dot-green' }
+      ],
+      statusTabs: [
+        { key: 'all', label: '全部' },
+        { key: 'pending', label: '待整改' },
+        { key: 'rectifying', label: '整改中' },
+        { key: 'verifying', label: '待验收' },
+        { key: 'closed', label: '已关闭' }
+      ]
     };
   },
   computed: {
-    filteredList() {
-      if (this.activeTab === 'all') return this.list;
-      return this.list.filter(x => x.status === this.activeTab);
+    riskLabel: function (level) {
+      var m = { critical: '重大', major: '较大', general: '一般', low: '低' };
+      return m[level] || level || '';
+    },
+    riskClass: function (level) {
+      var m = { critical: 'badge-red', major: 'badge-orange', general: 'badge-yellow', low: 'badge-green' };
+      return m[level] || 'badge-gray';
+    },
+    statusLabel: function (s) {
+      var m = { pending: '待整改', rectifying: '整改中', verifying: '待验收', closed: '已关闭' };
+      return m[s] || s || '';
+    },
+    statusClass: function (s) {
+      var m = { pending: 'badge-orange', rectifying: 'badge-blue', verifying: 'badge-green', closed: 'badge-gray' };
+      return m[s] || 'badge-gray';
+    },
+    filteredList: function () {
+      var list = this.list;
+      if (this.activeRisk !== 'all') list = list.filter(function (x) { return x.risk_level === this.activeRisk; }.bind(this));
+      if (this.activeStatus !== 'all') list = list.filter(function (x) { return x.status === this.activeStatus; }.bind(this));
+      return list;
     }
   },
   mounted() { this.load(); },
@@ -83,15 +92,7 @@ window.Pages.hazard = {
     async load() {
       try {
         const d = await api.get('/api/mobile/hazards', { page: 1, size: 200 });
-        const arr = d.data || d || [];
-        this.list = arr;
-        this.stats = {
-          all: arr.length,
-          pending: arr.filter(x => x.status === 'pending').length,
-          rectifying: arr.filter(x => x.status === 'rectifying').length,
-          verifying: arr.filter(x => x.status === 'verifying').length,
-          closed: arr.filter(x => x.status === 'closed').length
-        };
+        this.list = d.data || d || [];
       } catch (e) {
         utils.toast(e.message || '网络错误');
       } finally {
@@ -99,27 +100,18 @@ window.Pages.hazard = {
       }
     },
     goForm() { utils.go('/hazard_form'); },
-    goDetail(id) { utils.go('/hazard_form?id=' + id + '&mode=view'); },
-    riskLevel(item) {
-      let lv = (item.riskLevel || item.risk_level || item.risk || '').toLowerCase();
-      if (lv === 'high') lv = 'critical';
-      if (lv === 'medium' || lv === 'mid') lv = 'major';
-      if (['critical', 'major', 'general', 'low'].indexOf(lv) < 0) lv = 'low';
-      return lv;
+    goDetail(id) { utils.go('/hazard_detail?id=' + id); },
+    riskActive(key) { return this.activeRisk === key ? 'on' : ''; },
+    statusActive(key) { return this.activeStatus === key ? 'on' : ''; },
+    deviceLine(item) {
+      var line = item.device_name || item.deviceName || '未知设备';
+      if (item.location) line = line + ' · ' + item.location;
+      else if (item.device_location) line = line + ' · ' + item.device_location;
+      return line;
     },
-    riskLabel(item) {
-      const lv = this.riskLevel(item);
-      return ({ critical: '重大', major: '较大', general: '一般', low: '低' })[lv] || '低';
-    },
-    riskClass(item) {
-      const lv = this.riskLevel(item);
-      return ({ critical: 'risk-critical', major: 'risk-major', general: 'risk-general', low: 'risk-low' })[lv] || 'risk-low';
-    },
-    statusLabel(s) {
-      return ({ pending: '待整改', rectifying: '整改中', verifying: '待验收', closed: '已关闭' })[s] || s || '';
-    },
-    statusClass(s) {
-      return ({ pending: 'tag-warn', rectifying: 'tag-info', verifying: 'tag-primary', closed: 'tag-gray' })[s] || 'tag-gray';
+    findTime(item) {
+      var t = item.find_time || item.findTime || item.createdAt || item.create_time || item.created_at || '';
+      return t ? utils.formatTime(t) : '';
     }
   }
 };

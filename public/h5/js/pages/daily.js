@@ -3,11 +3,6 @@
 window.Pages = window.Pages || {};
 window.Pages.daily = {
   template: `
-  <style>
-  .tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
-  .tab-tag { background: #f5f6fa; color: var(--text); cursor: pointer; padding: 5px 12px; border-radius: 14px; }
-  .tab-tag.tag-on { background: var(--primary); color: #fff; }
-  </style>
   <div class="page">
     <!-- 状态筛选 -->
     <div class="card" style="padding:8px 10px">

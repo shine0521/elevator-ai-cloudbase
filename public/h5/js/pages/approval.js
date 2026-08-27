@@ -1,61 +1,41 @@
-// M-15 审批待办
+// 审批待办
 window.Pages = window.Pages || {};
 window.Pages.approval = {
   template: `
 <div class="page">
-  <!-- Tab 切换 -->
-  <div class="tab-bar card">
-    <div :class="['tab', tab==='pending'?'active':'']" @click="tab='pending'">
-      待审批 <text v-if="pendingList.length>0" class="badge-tiny">{{pendingList.length}}</text>
+  <div class="tab-bar card flex" style="gap:0;">
+    <div :class="['tab', tab==='pending' ? 'active' : '']" :style="{fontSize:'14px',flex:'1',padding:'10px 0'}" @click="switchTab('pending')">
+      待审批 <span v-if="hasPending" class="badge-orange">{{pendingList.length}}</span>
     </div>
-    <div :class="['tab', tab==='done'?'active':'']" @click="tab='done'">已审批</div>
+    <div :class="['tab', tab==='done' ? 'active' : '']" :style="{fontSize:'14px',flex:'1',padding:'10px 0'}" @click="switchTab('done')">已审批</div>
   </div>
-  
-  <!-- 待审批列表 -->
+
   <div v-if="tab==='pending'">
-    <div v-if="loading" class="empty-state"><text class="muted">加载中...</text></div>
-    <div v-else-if="pendingList.length===0" class="empty-state"><text class="muted">暂无待审批项</text></div>
-    <div v-else class="list-wrap">
-      <div v-for="item in pendingList" :key="item.id"
-        class="list-item card"
-        @click="goDetail(item.id)">
+    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+    <div v-else-if="pendingEmpty" class="empty-state"><span class="muted">暂无待审批事项</span></div>
+    <div v-else>
+      <div v-for="item in pendingList" :key="item.id" class="list-item card" @click="goDetail(item.id)">
         <div class="item-main">
-          <div class="item-title">{{item.biz_title || item.title || bizLabel(item.biz_type)}}</div>
-          <div class="status-badge" :style="{background:statusColor(item.status),color:'#fff'}">待审批</div>
+          <div class="item-title ellipsis">{{bizTitle(item)}}</div>
+          <span class="status-badge" :style="{background: statusColor(item.current_node_status), color:'#fff'}">{{statusLabel(item.current_node_status)}}</span>
         </div>
-        <div class="item-sub muted">
-          <text>{{bizLabel(item.biz_type)}}</text>
-          <text v-if="item.current_node"> | {{item.current_node}}</text>
-          <text v-if="item.applicant_name || item.applicant"> | 申请人：{{item.applicant_name || item.applicant}}</text>
-        </div>
-        <div class="item-sub muted">
-          <text v-if="item.create_time || item.created_at">{{item.create_time || item.created_at}}</text>
-        </div>
+        <div class="item-sub muted">{{bizLabel(item.biz_type)}}<span v-if="hasNode(item)"> · {{item.current_node}}</span></div>
+        <div class="item-sub muted">申请人：{{applicant(item)}} · {{createdAt(item)}}</div>
       </div>
     </div>
   </div>
-  
-  <!-- 已审批列表 -->
-  <div v-if="tab==='done'">
-    <div v-if="loading" class="empty-state"><text class="muted">加载中...</text></div>
-    <div v-else-if="doneList.length===0" class="empty-state"><text class="muted">暂无已审批记录</text></div>
-    <div v-else class="list-wrap">
-      <div v-for="item in doneList" :key="item.id"
-        class="list-item card"
-        @click="goDetail(item.id)">
+
+  <div v-else>
+    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+    <div v-else-if="doneEmpty" class="empty-state"><span class="muted">暂无已审批记录</span></div>
+    <div v-else>
+      <div v-for="item in doneList" :key="item.id" class="list-item card" @click="goDetail(item.id)">
         <div class="item-main">
-          <div class="item-title">{{item.biz_title || item.title || bizLabel(item.biz_type)}}</div>
-          <div class="status-badge" :style="{background:statusColor(item.status),color:'#fff'}">
-            {{item.status==='APPROVED'?'已批准':'已驳回'}}
-          </div>
+          <div class="item-title ellipsis">{{bizTitle(item)}}</div>
+          <span class="status-badge" :style="{background: statusColor(item.status), color:'#fff'}">{{decisionLabel(item.status)}}</span>
         </div>
-        <div class="item-sub muted">
-          <text>{{bizLabel(item.biz_type)}}</text>
-          <text v-if="item.decided_by || item.approver"> | 审批人：{{item.decided_by || item.approver}}</text>
-        </div>
-        <div class="item-sub muted">
-          <text v-if="item.decided_at || item.update_time">{{item.decided_at || item.update_time}}</text>
-        </div>
+        <div class="item-sub muted">{{bizLabel(item.biz_type)}}<span v-if="hasNode(item)"> · {{item.current_node}}</span></div>
+        <div class="item-sub muted">审批人：{{approver(item)}} · {{decidedAt(item)}}</div>
       </div>
     </div>
   </div>
@@ -69,44 +49,82 @@ window.Pages.approval = {
       loading: true
     };
   },
+  computed: {
+    hasPending: function () {
+      return this.pendingList.length > 0;
+    },
+    pendingEmpty: function () {
+      return this.pendingList.length === 0;
+    },
+    doneEmpty: function () {
+      return this.doneList.length === 0;
+    }
+  },
   mounted() {
     this.load();
   },
   methods: {
-    async load() {
+    switchTab: function (tab) {
+      if (this.tab === tab) return;
+      this.tab = tab;
+      this.load();
+    },
+    load: async function () {
       this.loading = true;
       try {
-        const pending = await api.get('/api/mobile/approvals');
-        const done = await api.get('/api/mobile/approvals?status=APPROVED');
-        this.pendingList = pending.data || pending || [];
-        this.doneList = (done.data || done || []).filter(i => i.status !== 'PENDING');
-        this.loading = false;
+        if (this.tab === 'pending') {
+          var d = await api.get('/api/mobile/approvals');
+          this.pendingList = d.data || d || [];
+        } else {
+          var d1 = await api.get('/api/mobile/approvals', { status: 'APPROVED' });
+          var d2 = await api.get('/api/mobile/approvals', { status: 'REJECTED' });
+          this.doneList = [(d1.data || d1 || []), (d2.data || d2 || [])].flat();
+        }
       } catch (e) {
+        utils.toast('加载失败');
+      } finally {
         this.loading = false;
-        utils.toast('网络错误');
       }
     },
-    statusColor(s) {
-      const STATUS_COLORS = {
-        PENDING: '#FF8C00',
-        APPROVED: '#52C41A',
-        REJECTED: '#F5222D'
-      };
-      return STATUS_COLORS[s] || '#999';
+    bizTitle: function (item) {
+      return item.biz_title || item.title || '';
     },
-    bizLabel(type) {
-      const BIZ_TYPE_LABELS = {
-        inspection: '日管控检查',
-        daily: '日管控检查',
-        weekly: '周排查',
-        hazard: '隐患排查',
-        emergency: '应急事件',
-        work_order: '工单',
-        monthly: '月调度'
-      };
-      return BIZ_TYPE_LABELS[type] || type || '审批';
+    applicant: function (item) {
+      return item.applicant_name || item.applicant || '';
     },
-    goDetail(id) {
+    createdAt: function (item) {
+      return item.created_at || item.create_time || '';
+    },
+    hasNode: function (item) {
+      return !!item.current_node;
+    },
+    approver: function (item) {
+      return item.approver_name || item.decided_by || item.approver || '';
+    },
+    decidedAt: function (item) {
+      return item.decided_at || item.update_time || '';
+    },
+    bizLabel: function (type) {
+      var m = {
+        inspection: '日管控', daily: '日管控', weekly: '周排查',
+        hazard: '隐患上报', emergency: '应急事件',
+        work_order: '整改工单', monthly: '月调度'
+      };
+      return m[type] || type || '审批';
+    },
+    statusColor: function (s) {
+      var m = { PENDING: '#FF8C00', APPROVED: '#52C41A', REJECTED: '#F5222D', FORWARDED: '#1677FF' };
+      return m[String(s || '').toUpperCase()] || '#999';
+    },
+    statusLabel: function (s) {
+      var m = { PENDING: '待审批', APPROVED: '已批准', REJECTED: '已驳回', FORWARDED: '已转审' };
+      return m[String(s || '').toUpperCase()] || '待审批';
+    },
+    decisionLabel: function (s) {
+      var m = { APPROVED: '批准', REJECTED: '驳回' };
+      return m[String(s || '').toUpperCase()] || '已处理';
+    },
+    goDetail: function (id) {
       utils.go('/approval_detail?id=' + id);
     }
   }

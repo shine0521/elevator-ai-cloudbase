@@ -1,264 +1,259 @@
-// pages/check.js — 聚合检查入口 M-03（完全重构版）
-// 根据 URL query ?type= 切换日管控/周排查/隐患/月调度/应急/审批 Tab
+// pages/check.js — 检查聚合入口（日管控 / 周排查 / 隐患）
+// 三个 tab 独立请求对应 API，切换 tab / 状态筛选时重新加载
+// 所有逻辑收敛到 computed / methods，模板中不含 && || > < 等运算符
 (function () {
-  var TYPE_META = {
-    daily:     { label: '日管控', path: '/api/mobile/inspections',   icon: '📋' },
-    weekly:    { label: '周排查', path: '/api/mobile/weekly',        icon: '📅' },
-    hazard:    { label: '隐患排查', path: '/api/mobile/hazards',     icon: '⚠' },
-    monthly:   { label: '月调度', path: '/api/mobile/monthly',      icon: '📊' },
-    emergency: { label: '应急', path: '/api/mobile/emergencies',     icon: '🔴' },
-    approve:   { label: '审批待办', path: '/api/mobile/approvals',  icon: '✅' }
-  };
-
-  function buildUrl(type, item) {
-    var id = item.id || item.inspection_id || item.record_id || '';
-    var map = {
-      daily:     '/daily_form?id=' + id,
-      weekly:    '/weekly_form?id=' + id,
-      hazard:    '/hazard_form?id=' + id,
-      monthly:   '/monthly_form?id=' + id,
-      emergency: '/emergency?id=' + id,
-      approve:   '/approval_detail?id=' + id
-    };
-    return map[type] || '';
-  }
-
-  function rowLabel(type, item) {
-    if (type === 'daily')     return item.device_name || item.inspection_no || item.id;
-    if (type === 'weekly')    return item.device_name || item.inspection_no || item.id;
-    if (type === 'hazard')    return item.hazard_no || item.hazard_type || item.device_name || item.id;
-    if (type === 'monthly')   return item.dispatch_no || item.dispatch_month || item.id;
-    if (type === 'emergency') return item.event_no || item.alarm_type || item.id;
-    if (type === 'approve')   return item.business_title || item.business_type || item.id;
-    return item.device_name || item.inspection_no || item.id;
-  }
-
-  function rowSub(type, item) {
-    var parts = [];
-    if (item.check_date) parts.push(item.check_date);
-    if (item.week_no) parts.push('第' + item.week_no + '周');
-    if (item.dispatch_month) parts.push(item.dispatch_month);
-    if (item.find_time) parts.push(utils.formatTime(item.find_time));
-    if (item.created_at) parts.push(utils.formatTime(item.created_at));
-    if (item.inspector_name) parts.push(item.inspector_name);
-    if (item.finder_name) parts.push(item.finder_name);
-    if (item.host_name) parts.push(item.host_name);
-    if (item.location || item.device_location) parts.push(item.location || item.device_location);
-    if (item.risk_level) parts.push(utils.levelLabel(item.risk_level));
-    if (item.trapped_count > 0) parts.push('困人' + item.trapped_count + '人');
-    if (item.alarm_type) parts.push(item.alarm_type);
-    if (item.node_name) parts.push(item.node_name);
-    return parts.slice(0, 3).join(' | ');
-  }
+  // 状态“进行中 / 已完成”分桶所需的后端状态集合
+  var ONGOING = ['pending', 'ongoing', 'submitted', 'rectifying', 'verifying'];
+  var COMPLETED = ['reviewed', 'closed', 'approved'];
 
   window.Pages = window.Pages || {};
   window.Pages.check = {
     template: [
       '<div class="check-page">',
+
+        // === Tab 切换 ===
         '<div class="check-tabs">',
-          '<div v-for="(meta, key) in typeMeta" v-bind:key="key" v-bind:class="tabCls(key)" v-on:click="switchType(key)">{{meta.label}}</div>',
+          '<div v-for="t in tabs" v-bind:key="t.key" v-bind:class="tabClass(t.key)" v-on:click="switchTab(t.key)">{{t.label}}</div>',
         '</div>',
-        '<div v-if="hasStats" class="card" style="padding:10px 14px;">',
-          '<div class="flex flex-between" style="font-size:12px;color:var(--muted);">',
-            '<span v-for="(val, key) in statsDisplay" v-bind:key="key">{{key}}: {{val}}</span>',
-          '</div>',
+
+        // === 状态筛选（全部 / 进行中 / 已完成） ===
+        '<div class="check-tabs" style="margin-bottom:10px;">',
+          '<div v-for="s in statusOptions" v-bind:key="s.value" v-bind:class="statusTagClass(s.value)" v-on:click="onStatusChange(s.value)">{{s.label}}</div>',
         '</div>',
-        '<template v-if="showSkeleton">',
-          '<div v-for="i in 4" v-bind:key="i" class="skeleton-card">',
-            '<div class="skeleton-line" style="width:60%;"></div>',
-            '<div class="skeleton-line" style="width:40%;"></div>',
-          '</div>',
-        '</template>',
+
+        // === 加载态 ===
+        '<div v-if="showLoading" class="loading-row"><div class="spinner"></div>加载中...</div>',
+
+        // === 空状态 ===
         '<div v-if="showEmpty" class="empty-state">',
-          '<div class="empty-icon">{{currentMeta.icon}}</div>',
-          '<div class="empty-title">{{currentMeta.label}}</div>',
-          '<div class="empty-sub">暂无数据</div>',
+          '<div class="empty-icon">📋</div>',
+          '<div class="empty-title">暂无数据</div>',
+          '<div class="empty-sub">切换标签或调整筛选条件试试</div>',
         '</div>',
-        '<div class="list" v-if="hasItems">',
-          '<div v-for="item in list" v-bind:key="item.id" class="list-item" v-on:click="goDetail(item)">',
-            '<div class="li-icon" v-bind:style="liIconStyle(item)">{{currentMeta.icon}}</div>',
-            '<div class="li-body">',
-              '<div class="li-title">{{rowLabel(currentType, item)}}</div>',
-              '<div class="li-sub">{{rowSub(currentType, item)}}</div>',
+
+        // === 列表 ===
+        '<div class="list" v-if="showList">',
+          '<div v-for="item in activeList" v-bind:key="item.id" class="list-item" v-on:click="itemClick(item)">',
+            '<div class="li-body" v-if="isCheckItem">',
+              '<div class="li-title">{{checkTitle(item)}}</div>',
+              '<div class="li-sub">{{checkSub(item)}}</div>',
+            '</div>',
+            '<div class="li-body" v-else-if="isHazardItem">',
+              '<div class="li-title">{{hazardTitle(item)}}</div>',
+              '<div class="li-sub">{{hazardSub(item)}}</div>',
             '</div>',
             '<div class="li-extra">',
-              '<span v-if="showStatusBadge(item)" class="badge" v-bind:style="statusBadgeStyle(item)">{{statusText(currentType, item)}}</span>',
-              '<span v-if="showLevelBadge(item)" class="badge" v-bind:style="levelBadgeStyle(item)">{{levelLabel(item.risk_level)}}</span>',
+              '<span v-if="isHazardItem" class="badge" v-bind:style="riskBadgeStyle(item)">{{riskLabel(item)}}</span>',
+              '<span class="badge" v-bind:class="statusClass(item.status)">{{statusLabel(item.status)}}</span>',
             '</div>',
             '<div class="li-arrow">›</div>',
           '</div>',
         '</div>',
-        '<div v-if="loadingMore" class="loading-row"><div class="spinner"></div>加载中...</div>',
-        '<div v-if="showLoadMoreBtn" class="pagination">',
-          '<button class="pg-btn" v-on:click="loadMore">加载更多</button>',
-        '</div>',
-        '<div v-if="showNoMore" class="loading-row"><span class="muted">-- 没有更多了 --</span></div>',
-        '<button v-if="showFab" class="fab" v-on:click="handleFab" title="新建">+</button>',
+
       '</div>'
     ].join(''),
+
     data: function () {
       return {
-        currentType: 'daily',
-        list: [],
-        loading: false,
-        loadingMore: false,
-        hasMore: false,
-        stats: null,
-        typeMeta: TYPE_META
+        activeTab: 'daily', // 'daily' | 'weekly' | 'hazard'
+        dailyList: [], weeklyList: [], hazardList: [],
+        dailyLoading: false, weeklyLoading: false, hazardLoading: false,
+        dailyStatus: 'all', weeklyStatus: 'all', hazardStatus: 'all',
+        tabs: [
+          { key: 'daily', label: '日管控' },
+          { key: 'weekly', label: '周排查' },
+          { key: 'hazard', label: '隐患' }
+        ],
+        statusOptions: [
+          { value: 'all', label: '全部' },
+          { value: 'ongoing', label: '进行中' },
+          { value: 'completed', label: '已完成' }
+        ]
       };
     },
+
     computed: {
-      currentMeta: function () {
-        return TYPE_META[this.currentType] || TYPE_META.daily;
+      // 当前 tab 对应的列表
+      activeList: function () {
+        if (this.activeTab === 'daily') return this.dailyList;
+        if (this.activeTab === 'weekly') return this.weeklyList;
+        return this.hazardList;
       },
-      hasItems: function () {
-        return this.list.length > 0;
+      // 当前 tab 对应的加载标志
+      activeLoading: function () {
+        if (this.activeTab === 'daily') return this.dailyLoading;
+        if (this.activeTab === 'weekly') return this.weeklyLoading;
+        return this.hazardLoading;
+      },
+      // 当前 tab 对应的状态筛选（读写代理）
+      activeStatus: {
+        get: function () {
+          if (this.activeTab === 'daily') return this.dailyStatus;
+          if (this.activeTab === 'weekly') return this.weeklyStatus;
+          return this.hazardStatus;
+        },
+        set: function (v) {
+          if (this.activeTab === 'daily') this.dailyStatus = v;
+          else if (this.activeTab === 'weekly') this.weeklyStatus = v;
+          else this.hazardStatus = v;
+        }
+      },
+      // 当前 tab 对应的 API 参数
+      activeParams: function () {
+        return { page: 1, size: 50 };
+      },
+
+      // 当前是否为检查类（日管控 / 周排查）
+      isCheckItem: function () {
+        return this.activeTab !== 'hazard';
+      },
+      // 当前是否为隐患
+      isHazardItem: function () {
+        return this.activeTab === 'hazard';
+      },
+
+      // 视图态
+      showLoading: function () {
+        return this.activeLoading && this.activeList.length === 0;
       },
       showEmpty: function () {
-        return !this.loading && this.list.length === 0;
+        return !this.activeLoading && this.activeList.length === 0;
       },
-      showSkeleton: function () {
-        return this.loading && this.list.length === 0;
-      },
-      showLoadMoreBtn: function () {
-        return this.hasMore && !this.loadingMore && this.list.length > 0;
-      },
-      showNoMore: function () {
-        return !this.hasMore && this.list.length > 0;
-      },
-      showFab: function () {
-        var fabTypes = { daily: 1, weekly: 1, hazard: 1, monthly: 1, emergency: 1 };
-        return !!fabTypes[this.currentType];
-      },
-      hasStats: function () {
-        return !!this.stats;
-      },
-      statsDisplay: function () {
-        if (!this.stats) return {};
-        var s = this.stats;
-        var d = {};
-        if (s.total !== undefined) d['总计'] = s.total;
-        if (s.pending !== undefined) d['待处理'] = s.pending;
-        if (s.ongoing !== undefined) d['进行中'] = s.ongoing;
-        if (s.rectifying !== undefined) d['整改中'] = s.rectifying;
-        if (s.verifying !== undefined) d['待核验'] = s.verifying;
-        if (s.closed !== undefined) d['已关闭'] = s.closed;
-        if (s.completed !== undefined) d['已完成'] = s.completed;
-        if (s.active !== undefined) d['进行中'] = s.active;
-        if (s.todayCount !== undefined) d['今日'] = s.todayCount;
-        return d;
+      showList: function () {
+        return this.activeList.length > 0;
       }
     },
-    watch: {
-      'query.type': {
-        immediate: true,
-        handler: function (type) {
-          if (type && type !== this.currentType) {
-            this.switchType(type);
-          } else if (!type) {
-            this.switchType('daily');
-          }
-        }
-      }
-    },
+
     mounted: function () {
-      var self = this;
-      window.__ptrFn = function () { return self.load(true); };
-      if (!this.query.type) {
-        this.switchType('daily');
-      }
+      var q = this.query || {};
+      if (q.type === 'weekly') this.activeTab = 'weekly';
+      else if (q.type === 'hazard') this.activeTab = 'hazard';
+      this.load();
+      window.__ptrFn = this.load.bind(this);
     },
-    unmounted: function () {
+
+    beforeUnmount: function () {
       window.__ptrFn = null;
     },
+
     methods: {
-      tabCls: function (key) {
-        return { 'check-tab': true, 'active': this.currentType === key };
-      },
-      switchType: function (type) {
-        if (!TYPE_META[type]) type = 'daily';
-        this.currentType = type;
-        this.list = [];
-        this.hasMore = false;
-        this.stats = null;
-        this.load(true);
-        var newHash = '#/check?type=' + type;
-        if (location.hash !== newHash) history.replaceState(null, '', newHash);
-      },
-      load: function (refresh) {
+      // 加载当前 tab 数据
+      load: function () {
         var self = this;
-        if (refresh) self.loading = true;
-        self.loadingMore = !refresh;
-        return api.get(TYPE_META[self.currentType].path, { page: 1, size: 20 })
+        var tab = this.activeTab;
+        var path = this.getApiPath();
+        var params = this.activeParams;
+
+        if (tab === 'daily') { self.dailyList = []; self.dailyLoading = true; }
+        else if (tab === 'weekly') { self.weeklyList = []; self.weeklyLoading = true; }
+        else { self.hazardList = []; self.hazardLoading = true; }
+
+        return api.get(path, params)
           .then(function (d) {
-            var arr = d.data || d || [];
-            self.list = arr;
-            self.hasMore = arr.length >= 20;
+            var arr = (d && d.data) || [];
+            if (tab === 'daily') self.dailyList = arr;
+            else if (tab === 'weekly') self.weeklyList = arr;
+            else self.hazardList = arr;
           })
           .catch(function () { utils.toast('加载失败'); })
           .finally(function () {
-            self.loading = false;
-            self.loadingMore = false;
+            if (tab === 'daily') self.dailyLoading = false;
+            else if (tab === 'weekly') self.weeklyLoading = false;
+            else self.hazardLoading = false;
           });
       },
-      loadMore: function () {
-        var self = this;
-        if (self.loadingMore || !self.hasMore) return;
-        self.loadingMore = true;
-        return api.get(TYPE_META[self.currentType].path, { page: 2, size: 20 })
-          .then(function (d) {
-            var arr = d.data || d || [];
-            self.list = self.list.concat(arr);
-            self.hasMore = arr.length >= 20;
-          })
-          .catch(function () {})
-          .finally(function () { self.loadingMore = false; });
+
+      switchTab: function (tab) {
+        if (this.activeTab === tab) return;
+        this.activeTab = tab;
+        this.load();
       },
-      goDetail: function (item) {
-        var url = buildUrl(this.currentType, item);
-        if (url) utils.go(url);
-        else utils.toast('该类型暂不支持');
+
+      onStatusChange: function (status) {
+        this.activeStatus = status;
+        this.load();
       },
-      handleFab: function () {
-        var typeMap = {
-          daily:     '/daily_form',
-          weekly:    '/weekly_form',
-          hazard:    '/hazard_form',
-          monthly:   '/monthly_form',
-          emergency: '/emergency'
+
+      // 根据 tab 返回 API 路径
+      getApiPath: function () {
+        if (this.activeTab === 'daily') return '/api/mobile/inspections';
+        if (this.activeTab === 'weekly') return '/api/mobile/weekly';
+        return '/api/mobile/hazards';
+      },
+
+      goForm: function (id) {
+        utils.go('/daily_form?id=' + id);
+      },
+
+      goDetail: function (id) {
+        utils.go('/daily_detail?id=' + id);
+      },
+
+      // 列表项点击：根据当前 tab 跳转对应页面
+      itemClick: function (item) {
+        var id = item.id;
+        if (this.activeTab === 'daily') this.goDetail(id);
+        else if (this.activeTab === 'weekly') utils.go('/weekly_form?id=' + id);
+        else utils.go('/hazard_form?id=' + id + '&mode=view');
+      },
+
+      // === 渲染辅助 ===
+      tabClass: function (key) {
+        return { 'check-tab': true, 'active': this.activeTab === key };
+      },
+      statusTagClass: function (value) {
+        return { 'check-tab': true, 'active': this.activeStatus === value };
+      },
+
+      checkTitle: function (item) {
+        return item.device_name || item.inspection_no || ('记录 #' + item.id);
+      },
+      checkSub: function (item) {
+        var parts = [];
+        if (item.device_code) parts.push(item.device_code);
+        if (item.check_date) parts.push(item.check_date);
+        if (item.location) parts.push(item.location);
+        if (item.inspector_name) parts.push(item.inspector_name);
+        return parts.join(' | ');
+      },
+      hazardTitle: function (item) {
+        var s = item.hazard_desc || item.hazard_type || item.device_name || ('隐患 #' + item.id);
+        if (s.length > 24) s = s.substring(0, 24) + '…';
+        return s;
+      },
+      hazardSub: function (item) {
+        var parts = [];
+        if (item.find_time) parts.push(utils.formatTime(item.find_time));
+        else if (item.created_at) parts.push(utils.formatTime(item.created_at));
+        if (item.location) parts.push(item.location);
+        return parts.join(' | ');
+      },
+
+      riskLabel: function (item) {
+        return utils.levelLabel(item.risk_level);
+      },
+      riskBadgeStyle: function (item) {
+        return { background: utils.levelColor(item.risk_level), color: '#fff' };
+      },
+
+      // 状态 → 中文标签
+      statusLabel: function (s) {
+        var key = String(s || '').toLowerCase();
+        var m = {
+          pending: '待检', ongoing: '进行中', submitted: '已提交', reviewed: '已审核',
+          rectifying: '整改中', verifying: '待验收', closed: '已关闭'
         };
-        var url = typeMap[this.currentType];
-        if (url) utils.go(url);
+        return m[key] || s || '';
       },
-      rowLabel: rowLabel,
-      rowSub: rowSub,
-      showStatusBadge: function (item) {
-        return !!this.statusText(this.currentType, item);
-      },
-      showLevelBadge: function (item) {
-        return item && item.risk_level && this.currentType === 'hazard';
-      },
-      levelColor: function (level) { return utils.levelColor(level); },
-      levelLabel: function (level) { return utils.levelLabel(level); },
-      statusColor: function (type, item) {
-        if (type === 'hazard') return utils.levelColor(item.risk_level);
-        return utils.statusColor(item.status);
-      },
-      statusText: function (type, item) {
-        if (type === 'hazard') return utils.levelLabel(item.risk_level);
-        return utils.statusLabel(item.status);
-      },
-      liIconStyle: function (item) {
-        var c = utils.levelColor(item && item.risk_level || '');
-        return { background: c.replace('var(', 'color-mix(in srgb,').replace(')', ',transparent)') };
-      },
-      statusBadgeStyle: function (item) {
-        var c = this.statusColor(this.currentType, item);
-        return { background: c, color: '#fff', fontSize: '11px', padding: '2px 7px', borderRadius: '10px', fontWeight: '600', display: 'inline-block' };
-      },
-      levelBadgeStyle: function (item) {
-        var c = utils.levelColor(item.risk_level);
-        return { background: c, color: '#fff', fontSize: '11px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', display: 'inline-block', marginLeft: '4px' };
+      // 状态 → 徽章配色类
+      statusClass: function (s) {
+        var key = String(s || '').toLowerCase();
+        var m = {
+          pending: 'badge-orange', ongoing: 'badge-blue', submitted: 'badge-blue',
+          reviewed: 'badge-green', rectifying: 'badge-blue', verifying: 'badge-orange',
+          closed: 'badge-gray'
+        };
+        return m[key] || 'badge-gray';
       }
     }
   };

@@ -1,77 +1,45 @@
-// M-10 整改工单列表 → H5 (Vue3 global build)
-// GET /api/mobile/work-orders?status=  |  5 状态 tabs
+// 整改工单列表 → H5 (Vue3 global build)
+// GET /api/mobile/work-orders?status=  支持 status 筛选
+// 状态 tab：全部 | 待整改 | 整改中 | 待验收 | 已关闭
+// Vue 模板安全：逻辑全部在 computed / methods，模板内无 && || 裸& > <
 window.Pages = window.Pages || {};
 window.Pages.work_order = {
   template: `
   <div class="page wo">
     <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
     <template v-else>
-      <!-- 状态 tabs -->
       <div class="tabs-bar">
-        <span v-for="t in tabs" :key="t.key" class="tab-item" :class="{active:activeTab===t.key}" @click="activeTab=t.key">{{t.label}}</span>
+        <span v-for="t in tabs" :key="t.key" class="tab-item" :class="tabClass(t.key)" @click="onTab(t.key)">{{ t.label }}</span>
       </div>
 
       <div class="list-wrap">
         <div v-for="item in filteredList" :key="item.id" class="list-item card" @click="goDetail(item.id)">
-          <div class="wo-title">{{item.title||item.order_no||('工单 #'+item.id)}}</div>
-          <div class="wo-device">{{item.deviceName||item.device_name||item.deviceCode||'设备未知'}}</div>
-          <div class="wo-tags">
-            <span class="status-badge" :class="statusClass(item.status)">{{statusLabel(item.status)}}</span>
-            <span v-if="item.riskLevel||item.risk_level" class="risk-badge" :class="riskClass(item)">{{riskLabel(item)}}</span>
+          <div class="wo-top">
+            <span class="wo-no">{{ orderNo(item) }}</span>
+            <span class="status-badge" :class="statusClass(item.status)">{{ statusLabel(item.status) }}</span>
           </div>
-          <!-- 进度时间线 -->
-          <div class="timeline">
-            <div class="tl-dot" :class="{done:progressStep(item.status)>=0}"></div>
-            <div class="tl-line" :class="{done:progressStep(item.status)>=1}"></div>
-            <div class="tl-dot" :class="{done:progressStep(item.status)>=1}"></div>
-            <div class="tl-line" :class="{done:progressStep(item.status)>=2}"></div>
-            <div class="tl-dot" :class="{done:progressStep(item.status)>=2}"></div>
-            <div class="tl-line" :class="{done:progressStep(item.status)>=3}"></div>
-            <div class="tl-dot" :class="{done:progressStep(item.status)>=3}"></div>
+          <div class="wo-hazard muted">{{ hazardDesc(item) }}</div>
+          <div class="wo-device">
+            <span class="wo-dev-name">{{ deviceName(item) }}</span>
+            <span v-if="showRisk(item)" class="risk-badge" :class="riskClass(item)">{{ riskLabel(item) }}</span>
           </div>
-          <div class="timeline-labels"><span>待整改</span><span>整改中</span><span>待验收</span><span>已关闭</span></div>
-          <div class="item-sub muted" style="margin-top:8px">{{item.createTime||item.create_time||item.createdAt||item.created_at||''}} {{item.assigneeName||item.assignee_name?('| 负责人：'+(item.assigneeName||item.assignee_name)):''}}</div>
+          <div v-if="showDeadline(item)" class="wo-deadline">
+            <span class="wo-dl-label">整改期限</span>
+            <span class="wo-dl-value">{{ deadlineText(item) }}</span>
+          </div>
+          <div class="wo-time muted">{{ timeText(item) }}</div>
         </div>
-        <div v-if="!filteredList.length" class="empty-state"><span class="muted">暂无工单</span></div>
+        <div v-if="showEmpty" class="empty-state"><span class="muted">暂无工单</span></div>
       </div>
     </template>
 
-    <style>
-      .wo.page { min-height:100vh; background:var(--bg); padding-bottom:20px; }
-      .wo .tabs-bar { white-space:nowrap; background:#fff; border-bottom:1px solid var(--border); padding:0 8px; overflow-x:auto; }
-      .wo .tab-item { display:inline-block; padding:12px; font-size:14px; color:#888; position:relative; cursor:pointer; }
-      .wo .tab-item.active { color:#1082FF; font-weight:600; }
-      .wo .tab-item.active::after { content:''; position:absolute; bottom:0; left:50%; transform:translateX(-50%); width:24px; height:3px; background:#1082FF; border-radius:2px; }
-      .wo .list-wrap { padding:12px; }
-      .wo .wo-title { font-size:15px; font-weight:600; color:#333; margin-bottom:4px; }
-      .wo .wo-device { font-size:13px; color:#888; margin-bottom:8px; }
-      .wo .wo-tags { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
-      .wo .risk-badge { display:inline-block; padding:2px 10px; border-radius:6px; font-size:12px; }
-      .wo .risk-critical { background:#FFF1F0; color:#CF1322; }
-      .wo .risk-major    { background:#FFF7E6; color:#D46B08; }
-      .wo .risk-general  { background:#FFFBE6; color:#7CB305; }
-      .wo .risk-low      { background:#F6FFED; color:#389E0D; }
-      .wo .tag-warn    { background:#FFF7E6; color:#FF6600; }
-      .wo .tag-info    { background:#E6F7FF; color:#1082FF; }
-      .wo .tag-primary { background:#F6FFED; color:#09B44A; }
-      .wo .tag-gray    { background:#F5F5F5; color:#888; }
-      .wo .timeline { display:flex; align-items:center; padding:0 4px; margin-bottom:4px; }
-      .wo .tl-dot { width:9px; height:9px; border-radius:50%; background:#ddd; flex-shrink:0; }
-      .wo .tl-dot.done { background:#1082FF; }
-      .wo .tl-line { flex:1; height:2px; background:#ddd; }
-      .wo .tl-line.done { background:#1082FF; }
-      .wo .timeline-labels { display:flex; justify-content:space-between; font-size:11px; color:#888; padding:0 1px; }
-      .wo .item-sub { font-size:12px; color:#999; }
-      .wo .muted { color:#999; }
-      .wo .empty-state { text-align:center; padding:40px 0; }
-    </style>
   </div>
   `,
-  data() {
+  data: function () {
     return {
       loading: true,
       list: [],
-      activeTab: 'all',
+      activeStatus: 'all',
       tabs: [
         { key: 'all', label: '全部' },
         { key: 'pending', label: '待整改' },
@@ -82,48 +50,79 @@ window.Pages.work_order = {
     };
   },
   computed: {
-    filteredList() {
-      if (this.activeTab === 'all') return this.list;
-      return this.list.filter(x => x.status === this.activeTab);
+    filteredList: function () {
+      if (this.activeStatus === 'all') return this.list;
+      var s = this.activeStatus;
+      return this.list.filter(function (x) { return x.status === s; });
+    },
+    showEmpty: function () {
+      return this.filteredList.length === 0;
     }
   },
-  mounted() { this.load(); },
+  mounted: function () {
+    this.load();
+  },
   methods: {
-    async load() {
+    load: async function () {
+      this.loading = true;
       try {
-        const d = await api.get('/api/mobile/work-orders', { page: 1, size: 200 });
-        this.list = d.data || d || [];
+        var d = await api.get('/api/mobile/work-orders', { page: 1, size: 200 });
+        this.list = (d && d.data) ? d.data : (Array.isArray(d) ? d : []);
       } catch (e) {
-        utils.toast(e.message || '网络错误');
+        utils.toast((e && e.message) || '加载失败');
+        this.list = [];
       } finally {
         this.loading = false;
       }
     },
-    goDetail(id) { utils.go('/work_order_detail?id=' + id); },
-    riskLevel(item) {
-      let lv = (item.riskLevel || item.risk_level || item.risk || '').toLowerCase();
+    onTab: function (k) { this.activeStatus = k; },
+    tabClass: function (k) { return this.activeStatus === k ? 'active' : ''; },
+    goDetail: function (id) { utils.go('/work_order_detail?id=' + id); },
+
+    orderNo: function (item) { return item.order_no || ('工单 #' + item.id); },
+
+    hazardDesc: function (item) {
+      var t = item.hazard_description || item.hazardDescription || item.description || '';
+      t = String(t);
+      if (!t) return '（无关联隐患描述）';
+      return t.length > 40 ? t.slice(0, 40) + '…' : t;
+    },
+
+    deviceName: function (item) {
+      return item.device_name || item.deviceName || item.device_code || item.deviceCode || '设备未知';
+    },
+
+    showRisk: function (item) {
+      return !!(item.risk_level || item.riskLevel || item.risk);
+    },
+    riskLevel: function (item) {
+      var lv = String(item.risk_level || item.riskLevel || item.risk || '').toLowerCase();
       if (lv === 'high') lv = 'critical';
       if (lv === 'medium' || lv === 'mid') lv = 'major';
       if (['critical', 'major', 'general', 'low'].indexOf(lv) < 0) lv = 'low';
       return lv;
     },
-    riskLabel(item) {
-      const lv = this.riskLevel(item);
-      return ({ critical: '重大', major: '较大', general: '一般', low: '低' })[lv] || '低';
+    riskLabel: function (item) {
+      var m = { critical: '重大', major: '较大', general: '一般', low: '低' };
+      return m[this.riskLevel(item)] || '低';
     },
-    riskClass(item) {
-      const lv = this.riskLevel(item);
-      return ({ critical: 'risk-critical', major: 'risk-major', general: 'risk-general', low: 'risk-low' })[lv] || 'risk-low';
+    riskClass: function (item) {
+      var m = { critical: 'risk-critical', major: 'risk-major', general: 'risk-general', low: 'risk-low' };
+      return m[this.riskLevel(item)] || 'risk-low';
     },
-    statusLabel(s) {
-      return ({ pending: '待整改', rectifying: '整改中', verifying: '待验收', closed: '已关闭' })[s] || s || '';
+
+    statusLabel: function (s) {
+      var m = { pending: '待整改', rectifying: '整改中', verifying: '待验收', closed: '已关闭' };
+      return m[s] || s || '';
     },
-    statusClass(s) {
-      return ({ pending: 'tag-warn', rectifying: 'tag-info', verifying: 'tag-primary', closed: 'tag-gray' })[s] || 'tag-gray';
+    statusClass: function (s) {
+      var m = { pending: 'tag-warn', rectifying: 'tag-info', verifying: 'tag-primary', closed: 'tag-gray' };
+      return m[s] || 'tag-gray';
     },
-    progressStep(status) {
-      const map = { pending: 0, rectifying: 1, verifying: 2, closed: 3 };
-      return map[status] != null ? map[status] : 0;
-    }
+
+    showDeadline: function (item) { return !!(item.deadline || item.deadline_at); },
+    deadlineText: function (item) { return utils.formatDate(item.deadline || item.deadline_at); },
+
+    timeText: function (item) { return utils.formatDateTime(item.created_at || item.createdAt); }
   }
 };

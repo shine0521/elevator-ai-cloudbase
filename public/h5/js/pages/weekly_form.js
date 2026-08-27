@@ -1,350 +1,503 @@
-// M-06 周排查执行
+// pages/weekly_form.js — 周排查执行 M-06（与 daily_form 高度相似，5 步：选设备→选模板→逐项检查→签名→提交）
+//  - 设备：GET /api/devices?page=&size=（web 通用列表接口）
+//  - 模板：GET /api/templates?status=published → 选中后 GET /api/templates/:id 取字段
+//  - 创建：POST /api/mobile/weekly {deviceId, weekNo, templateId, templateVersion}
+//  - 检查项：POST /api/mobile/weekly/:id/items {items:[...]}
+//  - 提交：POST /api/mobile/weekly/:id/submit {signature}（H5 用姓名输入替代手写签名）
+// 差异点：用 weekNo（当前第几周）替代 checkDate；itemCategory 用 weekly；标签显示"周排查"
 window.Pages = window.Pages || {};
 window.Pages.weekly_form = {
   template: `
-<div class="page">
-  <div v-if="loading" class="muted center">加载中...</div>
-  
-  <!-- 新建模式 -->
-  <div v-else-if="isNew" class="card">
-    <div class="card-title">周排查信息</div>
-    <div class="form-group">
-      <div class="form-label">排查周期</div>
-      <div class="date-range"><text>{{startDate}} ~ {{endDate}}</text></div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">检查人</div>
-      <input class="input" placeholder="请输入检查人姓名" v-model="inspectorName"/>
-    </div>
-    <div class="form-group">
-      <div class="form-label">备注说明</div>
-      <textarea class="textarea" placeholder="可选…" v-model="note"></textarea>
-    </div>
-    <button class="btn-primary" @click="onCreate" :disabled="submiting">
-      {{submiting?'创建中…':'创建并开始排查'}}
-    </button>
-  </div>
-  
-  <!-- 执行模式 -->
-  <div v-else>
-    <!-- 顶部进度 -->
-    <div class="progress-header">
-      <div class="progress-info">
-        <text class="ph-title">{{weeklyNo||'周排查'}}</text>
-        <text class="ph-date muted">{{startDate}} ~ {{endDate}}</text>
-      </div>
-      <div class="progress-right">
-        <text class="ph-count">{{completedCount}}</text>
-        <text class="ph-total muted">/ {{totalCount}} 项</text>
+  <div class="page">
+    <!-- 步骤条 -->
+    <div class="steps">
+      <div class="step" v-for="(s, i) in steps" :key="s" :class="{on: stepOn(i)}">
+        <div class="dot">{{i + 1}}</div>{{s}}
       </div>
     </div>
-    <div class="progress-bar-wrap">
-      <div class="progress-bar">
-        <div class="progress-fill" :style="{width:progressWidth()}"></div>
-      </div>
-    </div>
-    
-    <!-- 检查项快捷跳转 -->
-    <scroll-view scroll-x class="item-tabs">
-      <div v-for="(item,idx) in items" :key="item.id"
-        :class="['item-tab', currentIndex===idx?'active':'', itemDone(item)]"
-        @click="goItem(idx)">{{idx+1}}</div>
-    </scroll-view>
-    
-    <!-- 当前检查项 -->
-    <div v-if="items[currentIndex]" class="check-card">
-      <div class="check-header">
-        <text class="check-num">第 {{currentIndex+1}} / {{totalCount}} 项</text>
-        <text class="check-label">{{items[currentIndex].label}}</text>
-        <text v-if="items[currentIndex].required" class="req-mark">*</text>
-        <text v-if="items[currentIndex].unit" class="unit-mark">{{items[currentIndex].unit}}</text>
-      </div>
-      
-      <!-- Radio -->
-      <div v-if="isRadio(items[currentIndex].type)" class="options-grid">
-        <div v-for="(opt,oi) in items[currentIndex].options" :key="oi"
-          :class="['opt-btn', currentValue===opt?'selected':'']"
-          @click="currentValue=opt">{{opt}}</div>
-      </div>
-      
-      <!-- Textarea -->
-      <textarea v-else-if="isTextarea(items[currentIndex].type)" class="textarea" 
-        placeholder="请输入…" v-model="currentValue" maxlength="500"></textarea>
-      
-      <!-- Default input -->
-      <input v-else class="input" placeholder="请输入…" v-model="currentValue"/>
-      
-      <!-- 备注 -->
-      <div class="form-group" style="margin-top:20rpx">
-        <div class="form-label">备注说明</div>
-        <textarea class="textarea" placeholder="可选…" v-model="currentNote" maxlength="200"></textarea>
-      </div>
-      
-      <!-- 照片 -->
-      <div class="form-group">
-        <div class="form-label">照片证据（可选）</div>
-        <div class="photo-row">
-          <div v-for="(p,pi) in currentPhotos" :key="pi" class="photo-wrap">
-            <img :src="p" class="photo-thumb"/>
-            <text class="photo-del" @click="onRemovePhoto(pi)">✕</text>
+
+    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+
+    <template v-else>
+      <!-- ============ STEP 0 选设备 + 周号 ============ -->
+      <div v-if="step === 0" class="card">
+        <div class="card-title">周排查信息 <span class="type-tag">周排查</span></div>
+        <div class="form-item">
+          <div class="form-label">排查周期（第几周）</div>
+          <select v-model="form.weekNo" class="fi-input">
+            <option v-for="o in weekOptions" :key="o.value" :value="o.value">{{o.label}}</option>
+          </select>
+          <div class="fi-help">当前周号：{{weekLabel}}</div>
+        </div>
+        <div class="form-item">
+          <div class="form-label">选择设备</div>
+          <input v-model="deviceSearch" class="fi-input" placeholder="搜索设备名称 / 编号">
+        </div>
+        <div class="dev-list">
+          <div v-for="d in filteredDevices" :key="d.id" class="dev-item" :class="{on: form.deviceId == d.id}" @click="form.deviceId = d.id">
+            <div class="dev-name">{{d.device_name}} <span class="muted">{{d.device_code}}</span></div>
+            <div class="muted" style="font-size:12px">{{locText(d)}} {{typeText(d)}}</div>
           </div>
-          <div v-if="currentPhotos.length<6" class="photo-add" @click="onTakePhoto">+</div>
+          <div v-if="!filteredDevices.length" class="empty-state"><span class="muted">暂无设备</span></div>
+        </div>
+        <button class="btn-primary" @click="next">下一步：选择模板</button>
+      </div>
+
+      <!-- ============ STEP 1 选模板 ============ -->
+      <div v-if="step === 1" class="card">
+        <div class="form-item">
+          <div class="form-label">检查模板（已发布）</div>
+          <input v-model="templateSearch" class="fi-input" placeholder="搜索模板名称 / 编号">
+        </div>
+        <div class="dev-list">
+          <div v-for="t in filteredTemplates" :key="t.id" class="dev-item" :class="{on: form.templateId == t.id}" @click="selectTemplate(t)">
+            <div class="dev-name">{{t.name}} <span class="muted">v{{t.version}}</span></div>
+            <div class="muted" style="font-size:12px">{{catText(t)}} {{descText(t)}}</div>
+          </div>
+          <div v-if="!filteredTemplates.length" class="empty-state"><span class="muted">暂无已发布模板</span></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-ghost" @click="prev">上一步</button>
+          <button class="btn-primary" @click="next">下一步：逐项检查</button>
         </div>
       </div>
-      
-      <!-- 导航按钮 -->
-      <div class="item-nav">
-        <button v-if="currentIndex>0" class="btn-nav" @click="prevItem">← 上一项</button>
-        <button class="btn-nav btn-next" @click="onSubmitItem">保存并下一项</button>
-        <button v-if="currentIndex<items.length-1" class="btn-nav" @click="nextItem">下一项 →</button>
+
+      <!-- ============ STEP 2 逐项检查 ============ -->
+      <div v-if="step === 2">
+        <div class="card" v-if="viewMode"><span class="tag tag-green">该检查已提交，当前为只读查看</span></div>
+        <div class="card" v-for="(f, idx) in fields" :key="f.id">
+          <div class="fi-head">
+            <span class="fi-label">{{idx + 1}}. {{fieldName(f)}}</span>
+            <span class="req" v-if="f.required">*</span>
+          </div>
+
+          <!-- text / number -->
+          <input v-if="isTextType(f)"
+            v-model="formData[f.id]" class="fi-input"
+            :type="f.field_type === 'number' ? 'number' : 'text'"
+            :disabled="viewMode" :placeholder="placeholderOf(f)">
+          <!-- textarea -->
+          <textarea v-else-if="f.field_type === 'textarea'"
+            v-model="formData[f.id]" class="fi-input"
+            :disabled="viewMode" :placeholder="placeholderOf(f)"></textarea>
+          <!-- date -->
+          <input v-else-if="f.field_type === 'date'"
+            v-model="formData[f.id]" class="fi-input" type="date" :disabled="viewMode">
+          <!-- select -->
+          <select v-else-if="f.field_type === 'select'"
+            v-model="formData[f.id]" class="fi-input" :disabled="viewMode">
+            <option value="">请选择</option>
+            <option v-for="o in opts(f)" :key="o" :value="o">{{o}}</option>
+          </select>
+          <!-- radio -->
+          <label v-else-if="f.field_type === 'radio'" v-for="o in opts(f)" :key="o" class="opt">
+            <input type="radio" :name="'f' + f.id" :value="o" v-model="formData[f.id]" :disabled="viewMode"> {{o}}
+          </label>
+          <!-- checkbox -->
+          <span v-else-if="f.field_type === 'checkbox'">
+            <label v-for="o in opts(f)" :key="o" class="opt">
+              <input type="checkbox" :value="o" v-model="formData[f.id]" :disabled="viewMode"> {{o}}
+            </label>
+          </span>
+          <!-- photo / ai_recognition / file -->
+          <div v-else-if="isMediaType(f)">
+            <div v-if="formData[f.id]" class="fi-file">📎 {{formData[f.id]}}</div>
+            <button v-if="!viewMode" class="btn-ghost" @click="pickFile(f)">
+              {{formData[f.id] ? '重新选择' : (f.field_type === 'file' ? '选择文件' : '📷 拍照上传')}}
+            </button>
+            <div v-if="f.field_type === 'ai_recognition'" class="fi-help">拍照后系统将自动识别数据并填入</div>
+          </div>
+          <!-- signature -->
+          <input v-else-if="f.field_type === 'signature'"
+            v-model="formData[f.id]" class="fi-input"
+            :disabled="viewMode" placeholder="签名人姓名">
+          <!-- sensor_data / computed（只读） -->
+          <div v-else class="fi-readonly">{{readonlyVal(f)}}</div>
+
+          <div v-if="f.help_text" class="fi-help">{{f.help_text}}</div>
+        </div>
+        <div v-if="!fields.length" class="card muted">该模板暂无检查项</div>
+
+        <div class="btn-row" v-if="!viewMode">
+          <button class="btn-ghost" @click="prev">上一步</button>
+          <button class="btn-primary" @click="next">下一步：签名</button>
+        </div>
+        <div class="btn-row" v-else>
+          <button class="btn-ghost" @click="goList">返回列表</button>
+        </div>
       </div>
-    </div>
-    
-    <!-- 最终提交 -->
-    <div class="submit-section">
-      <div class="progress-tip muted">已完成 {{completedCount}} / {{totalCount}} 项</div>
-      <button class="btn-final" @click="onFinalSubmit" :disabled="submiting">
-        {{submiting?'提交中…':'全部完成，提交周排查'}}
-      </button>
-    </div>
+
+      <!-- ============ STEP 3 签名 ============ -->
+      <div v-if="step === 3" class="card">
+        <div class="form-item">
+          <div class="form-label">检查摘要</div>
+          <div class="sum-line">类型：<span class="type-tag">周排查</span></div>
+          <div class="sum-line">设备：{{selectedDevice ? selectedDevice.device_name : form.deviceId}}</div>
+          <div class="sum-line">周号：{{weekLabel}}</div>
+          <div class="sum-line">模板：{{selectedTemplate ? selectedTemplate.name : form.templateId}}</div>
+          <div class="sum-line">检查项 {{stats.total}} 项 · 通过 {{stats.pass}} · 未通过 {{stats.fail}}</div>
+        </div>
+        <div class="form-item">
+          <div class="form-label">签名（检查人姓名，替代手写签名）</div>
+          <input v-model="signName" class="fi-input" placeholder="请输入检查人姓名" :disabled="viewMode">
+        </div>
+        <div class="btn-row">
+          <button class="btn-ghost" @click="prev">上一步</button>
+          <button class="btn-primary" @click="next">下一步：提交</button>
+        </div>
+      </div>
+
+      <!-- ============ STEP 4 提交 ============ -->
+      <div v-if="step === 4" class="card">
+        <div v-if="viewMode" class="center muted">该检查已提交，无需重复操作</div>
+        <template v-else>
+          <div class="form-item">
+            <div class="form-label">确认提交</div>
+            <div class="sum-line">类型：<span class="type-tag">周排查</span></div>
+            <div class="sum-line">设备：{{selectedDevice ? selectedDevice.device_name : form.deviceId}}</div>
+            <div class="sum-line">周号：{{weekLabel}}</div>
+            <div class="sum-line">模板：{{selectedTemplate ? selectedTemplate.name : form.templateId}}</div>
+            <div class="sum-line">检查项：{{stats.total}} 项（通过 {{stats.pass}} / 未通过 {{stats.fail}}）</div>
+            <div class="sum-line">签名：{{signName}}</div>
+          </div>
+          <button class="btn-primary" @click="submit" :disabled="submitting">
+            {{submitting ? '提交中...' : '确认提交'}}
+          </button>
+          <div v-if="hasFail" class="fi-help" style="margin-top:8px">⚠ 有 {{stats.fail}} 项未通过，提交后将进入复核流程</div>
+        </template>
+        <button class="btn-ghost" style="margin-top:8px" @click="goList">返回列表</button>
+      </div>
+    </template>
   </div>
-</div>
-`,
+  `,
+  props: ['query'],
   data() {
     return {
-      query: {},
+      step: 0,
+      steps: ['选设备', '选模板', '逐项检查', '签名', '提交'],
       loading: true,
-      submiting: false,
-      weeklyId: '',
-      isNew: true,
-      weeklyNo: '',
-      startDate: '',
-      endDate: '',
-      inspectorId: '',
-      inspectorName: '',
-      status: 'pending',
-      note: '',
-      items: [],
-      currentIndex: 0,
-      completedCount: 0,
-      totalCount: 0,
-      currentValue: null,
-      currentPhotos: [],
-      currentNote: ''
+      submitting: false,
+      editId: null,
+      viewMode: false,
+      devices: [],
+      templates: [],
+      fields: [],
+      deviceSearch: '',
+      templateSearch: '',
+      form: {
+        deviceId: '',
+        weekNo: Math.ceil(new Date().getDate() / 7),
+        templateId: '',
+        templateVersion: 1
+      },
+      formData: {},
+      signName: ''
     };
   },
+  computed: {
+    filteredDevices() {
+      const q = (this.deviceSearch || '').trim().toLowerCase();
+      if (!q) return this.devices;
+      return this.devices.filter(d =>
+        String(d.device_name || '').toLowerCase().indexOf(q) >= 0 ||
+        String(d.device_code || '').toLowerCase().indexOf(q) >= 0 ||
+        String(d.location || '').toLowerCase().indexOf(q) >= 0
+      );
+    },
+    filteredTemplates() {
+      const q = (this.templateSearch || '').trim().toLowerCase();
+      if (!q) return this.templates;
+      return this.templates.filter(t =>
+        String(t.name || '').toLowerCase().indexOf(q) >= 0 ||
+        String(t.code || '').toLowerCase().indexOf(q) >= 0
+      );
+    },
+    selectedDevice() {
+      return this.devices.find(d => String(d.id) === String(this.form.deviceId)) || null;
+    },
+    selectedTemplate() {
+      return this.templates.find(t => String(t.id) === String(this.form.templateId)) || null;
+    },
+    weekOptions() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const days = new Date(y, m + 1, 0).getDate();
+      const mm = String(m + 1).padStart(2, '0');
+      const opts = [];
+      let wk = 1;
+      for (let start = 1; start <= days; start += 7) {
+        const end = Math.min(start + 6, days);
+        const s = String(start).padStart(2, '0');
+        const e = String(end).padStart(2, '0');
+        opts.push({ value: wk, label: '第' + wk + '周 (' + mm + '/' + s + ' - ' + mm + '/' + e + ')' });
+        wk++;
+      }
+      return opts;
+    },
+    weekLabel() {
+      const opt = this.weekOptions.find(o => o.value === this.form.weekNo);
+      if (opt) return opt.label;
+      return this.isoWeek(new Date());
+    },
+    stats() {
+      let pass = 0, fail = 0;
+      this.fields.forEach(f => {
+        const v = this.formData[f.id];
+        const empty = Array.isArray(v) ? !v.length : (v == null || String(v).trim() === '');
+        const ro = f.field_type === 'sensor_data' || f.field_type === 'computed';
+        if (!ro && f.required && empty) fail++; else pass++;
+      });
+      return { total: this.fields.length, pass: pass, fail: fail };
+    }
+  },
   mounted() {
-    const parsed = Router.parse();
-    this.query = parsed.query;
-    
-    if (this.query.id) {
-      this.weeklyId = this.query.id;
-      this.isNew = false;
-      this.loadWeekly(this.query.id);
-    } else {
-      this.isNew = true;
-      this.loading = false;
-      this.initWeekly();
+    this.editId = (this.query && this.query.id) || null;
+    this.loadDevices();
+    this.loadTemplates();
+    if (this.editId) this.loadDetail();
+    else this.loading = false;
+  },
+  watch: {
+    'query.id'(nv) {
+      const id = nv || null;
+      if (String(id || '') !== String(this.editId || '')) {
+        this.editId = id;
+        this.reset();
+        if (id) this.loadDetail();
+      }
     }
   },
   methods: {
-    initWeekly() {
-      const now = new Date();
-      const day = now.getDay();
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      this.startDate = fmt(monday);
-      this.endDate = fmt(sunday);
-      this.inspectorName = Store.state.user ? (Store.state.user.name || Store.state.user.username || '') : '';
-      this.inspectorId = Store.state.user ? (Store.state.user.id || '') : '';
-      this.loadTemplate();
+    stepOn(i) {
+      return i <= this.step;
     },
-    async loadWeekly(id) {
+    locText(d) {
+      return d.location || '';
+    },
+    typeText(d) {
+      return d.device_type || '';
+    },
+    catText(t) {
+      return t.category || '通用';
+    },
+    descText(t) {
+      return t.description || '';
+    },
+    fieldName(f) {
+      return f.field_label || f.field_name;
+    },
+    readonlyVal(f) {
+      return this.formData[f.id] || f.default_value || '—';
+    },
+    placeholderOf(f) {
+      return f.placeholder || '请输入';
+    },
+    isTextType(f) {
+      return f.field_type === 'text' || f.field_type === 'number';
+    },
+    isMediaType(f) {
+      return f.field_type === 'photo' || f.field_type === 'ai_recognition' || f.field_type === 'file';
+    },
+    isoWeek(date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      const dayNum = (d.getUTCDay() + 6) % 7;
+      d.setUTCDate(d.getUTCDate() - dayNum + 3);
+      const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+      const diff = (d - firstThursday) / 86400000;
+      const week = 1 + Math.round((diff - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+      return date.getFullYear() + '-W' + String(week).padStart(2, '0');
+    },
+    async loadDevices() {
       try {
-        const meta = await api.get(`/api/mobile/weekly/${id}`);
-        const itemsData = await api.get(`/api/mobile/weekly/${id}/items`).catch(() => ({ data: [] }));
-        const meta2 = meta.data || meta || {};
-        const items = (itemsData.data || itemsData || []).map(it => ({
-          ...it,
-          value: it.value || null,
-          photos: it.photos || []
-        }));
-        const completed = items.filter(it => it.value !== null && it.value !== '' && it.value !== undefined).length;
-        this.weeklyNo = meta2.weeklyNo || meta2.weekly_no || '';
-        this.startDate = meta2.startDate || meta2.start_date || '';
-        this.endDate = meta2.endDate || meta2.end_date || '';
-        this.inspectorName = meta2.inspectorName || meta2.inspector_name || '';
-        this.inspectorId = meta2.inspectorId || meta2.inspector_id || '';
-        this.status = meta2.status || 'pending';
-        this.items = items;
-        this.totalCount = items.length;
-        this.completedCount = completed;
-        this.currentIndex = 0;
-        this.loading = false;
-        if (items.length > 0) this._syncCurrent(0);
+        const d = await api.get('/api/devices', { page: 1, size: 200 });
+        this.devices = d.data || [];
       } catch (e) {
-        this.loading = false;
-        utils.toast('加载失败');
+        if (!this._gone) utils.toast((e && e.message) || '设备列表加载失败');
       }
     },
-    async loadTemplate() {
+    async loadTemplates() {
       try {
-        const d = await api.get('/api/mobile/weekly-template');
-        const items = (d.data || d || []).map(it => ({
-          id: it.id,
-          label: it.label || it.name || it.field_name || '检查项',
-          type: it.type || 'text',
-          value: null,
-          options: it.options || [],
-          unit: it.unit || '',
-          required: it.required !== false,
-          photos: []
-        }));
-        this.items = items;
-        this.totalCount = items.length;
-        this.completedCount = 0;
-        this.loading = false;
-        if (items.length > 0) this._syncCurrent(0);
+        const d = await api.get('/api/templates', { status: 'published', page: 1, size: 200 });
+        this.templates = d.data || [];
       } catch (e) {
-        const defaultItems = [
-          { id: 'w1', label: '机房环境整洁', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w2', label: '控制柜指示灯正常', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w3', label: '曳引机运转正常', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w4', label: '制动器动作可靠', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w5', label: '门机系统运行正常', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w6', label: '轿厢内照明正常', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w7', label: '紧急报警装置有效', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w8', label: '限速器动作正常', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w9', label: '安全回路正常', type: 'radio', options: ['合格', '不合格'], value: null, unit: '', required: true },
-          { id: 'w10', label: '备注说明', type: 'textarea', options: [], value: null, unit: '', required: false }
-        ];
-        this.items = defaultItems;
-        this.totalCount = defaultItems.length;
-        this.completedCount = 0;
-        this.loading = false;
-        this._syncCurrent(0);
+        if (!this._gone) utils.toast((e && e.message) || '模板列表加载失败');
       }
     },
-    async onCreate() {
-      if (this.submiting) return;
-      this.submiting = true;
+    // 选中模板：立即拉取字段
+    async selectTemplate(t) {
+      this.form.templateId = t.id;
+      this.form.templateVersion = t.version || 1;
       try {
-        const gps = await utils.getLocation().catch(() => ({}));
-        const payload = {
-          startDate: this.startDate,
-          endDate: this.endDate,
-          inspectorName: this.inspectorName,
-          inspectorId: this.inspectorId,
-          gpsLocation: gps
-        };
-        const d = await api.post('/api/mobile/weekly', payload);
-        const id = (d.data || d || {}).id || d.id;
-        if (!id) throw new Error('no id');
-        this.weeklyId = id;
-        this.isNew = false;
-        this.submiting = false;
-        utils.toast('创建成功');
+        const d = await api.get('/api/templates/' + t.id);
+        this.fields = d.fields || [];
+        this.initFormData();
       } catch (e) {
-        this.submiting = false;
-        utils.toast('创建失败');
+        if (!this._gone) utils.toast((e && e.message) || '模板字段加载失败');
       }
     },
-    _syncCurrent(idx) {
-      const item = this.items[idx];
-      if (!item) return;
-      this.currentIndex = idx;
-      this.currentValue = item.value || null;
-      this.currentPhotos = item.photos || [];
-      this.currentNote = item.note || '';
+    initFormData() {
+      const fd = {};
+      this.fields.forEach(f => {
+        fd[f.id] = f.field_type === 'checkbox' ? [] : (f.default_value || '');
+      });
+      this.formData = fd;
     },
-    prevItem() {
-      if (this.currentIndex > 0) this._syncCurrent(this.currentIndex - 1);
-    },
-    nextItem() {
-      const idx = this.currentIndex;
-      this._saveCurrent();
-      if (idx < this.items.length - 1) this._syncCurrent(idx + 1);
-    },
-    goItem(idx) {
-      this._saveCurrent();
-      this._syncCurrent(idx);
-    },
-    async onTakePhoto() {
+    // 编辑模式：加载已有检查（含检查项回填）
+    async loadDetail() {
+      this.loading = true;
       try {
-        const photos = await utils.chooseImage(3);
-        this.currentPhotos = [...this.currentPhotos, ...photos].slice(0, 6);
-      } catch (e) {}
-    },
-    onRemovePhoto(idx) {
-      const photos = [...this.currentPhotos];
-      photos.splice(idx, 1);
-      this.currentPhotos = photos;
-    },
-    _saveCurrent() {
-      const idx = this.currentIndex;
-      const items = [...this.items];
-      items[idx] = {
-        ...items[idx],
-        value: this.currentValue,
-        photos: this.currentPhotos,
-        note: this.currentNote
-      };
-      const completed = items.filter(it => it.value !== null && it.value !== '' && it.value !== undefined).length;
-      this.items = items;
-      this.completedCount = completed;
-    },
-    async onSubmitItem() {
-      if (!this.weeklyId) return utils.toast('请先创建周排查');
-      this._saveCurrent();
-      const item = this.items[this.currentIndex];
-      if (!item) return;
-      try {
-        await api.post(`/api/mobile/weekly/${this.weeklyId}/items`, {
-          itemId: item.id,
-          value: item.value,
-          photos: item.photos,
-          note: item.note
-        });
-        utils.toast('已保存');
-        if (this.currentIndex < this.items.length - 1) {
-          setTimeout(() => this.nextItem(), 1200);
+        const d = await api.get('/api/mobile/weekly/' + this.editId);
+        const meta = d.data || d || {};
+        this.form.deviceId = meta.device_id != null ? meta.device_id : (meta.deviceId != null ? meta.deviceId : '');
+        if (meta.week_no != null) this.form.weekNo = meta.week_no;
+        else if (meta.weekNo != null) this.form.weekNo = meta.weekNo;
+        this.form.templateId = meta.template_id || (meta.templateId || '');
+        this.form.templateVersion = meta.template_version || (meta.templateVersion || 1);
+        this.viewMode = ['submitted', 'reviewed', 'completed'].indexOf(meta.status) >= 0;
+        if (this.form.templateId) {
+          try {
+            const t = await api.get('/api/templates/' + this.form.templateId);
+            this.fields = t.fields || [];
+            this.initFormData();
+            (meta.items || []).forEach(it => {
+              if (it.field_id == null) return;
+              const f = this.fields.find(x => String(x.id) === String(it.field_id));
+              if (!f) return;
+              const v = it.input_value;
+              if (f.field_type === 'checkbox') this.formData[f.id] = v ? String(v).split(',') : [];
+              else this.formData[f.id] = v == null ? '' : String(v);
+            });
+          } catch (e) { /* 模板缺失时保留空字段 */ }
         }
+        this.signName = meta.inspector_name || (meta.inspectorName || (Store.state.user && Store.state.user.name) || '');
+        this.step = 2;
       } catch (e) {
-        utils.toast('保存失败');
+        if (!this._gone) utils.toast((e && e.message) || '加载失败');
+      } finally {
+        if (!this._gone) this.loading = false;
       }
     },
-    async onFinalSubmit() {
-      if (!this.weeklyId) return utils.toast('请先创建周排查');
-      if (this.completedCount < this.totalCount) {
-        const ok = await utils.confirm(`还有 ${this.totalCount - this.completedCount} 项未完成，确认提交吗？`);
-        if (!ok) return;
-      }
-      await this._doFinalSubmit();
+    reset() {
+      this.step = 0;
+      this.viewMode = false;
+      this.fields = [];
+      this.formData = {};
+      this.signName = '';
+      this.form = {
+        deviceId: '',
+        weekNo: Math.ceil(new Date().getDate() / 7),
+        templateId: '',
+        templateVersion: 1
+      };
+      this.loading = false;
     },
-    async _doFinalSubmit() {
-      if (this.submiting) return;
-      this.submiting = true;
+    // 选项解析（服务端已解析为数组，兼容历史竖线/逗号格式）
+    opts(f) {
+      const o = f.options;
+      if (Array.isArray(o)) return o;
+      if (o == null || o === '') return [];
+      return String(o).split(/[|,，;；、]/).map(s => s.trim()).filter(Boolean);
+    },
+    // 文件/拍照选择（H5 用文件选择替代，存文件名）
+    pickFile(f) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = f.field_type === 'file' ? '*/*' : 'image/*';
+      input.onchange = function () {
+        const file = input.files && input.files[0];
+        if (file) this.formData[f.id] = file.name;
+      }.bind(this);
+      input.click();
+    },
+    next() {
+      if (this.step === 0) {
+        if (!this.form.deviceId) { utils.toast('请选择设备'); return; }
+        if (!this.form.weekNo) { utils.toast('请选择排查周期'); return; }
+      }
+      if (this.step === 1) {
+        if (!this.form.templateId) { utils.toast('请选择检查模板'); return; }
+      }
+      if (this.step === 2 && !this.validateFields()) return;
+      if (this.step === 3 && !this.signName.trim()) { utils.toast('请填写签名'); return; }
+      if (this.step < 4) this.step++;
+    },
+    prev() {
+      if (this.step > 0) this.step--;
+    },
+    validateFields() {
+      const skip = { sensor_data: 1, computed: 1, photo: 1, file: 1, ai_recognition: 1 };
+      for (const f of this.fields) {
+        if (skip[f.field_type] || !f.required) continue;
+        const v = this.formData[f.id];
+        const empty = Array.isArray(v) ? !v.length : (v == null || String(v).trim() === '');
+        if (empty) {
+          utils.toast('请填写：' + (f.field_label || f.field_name));
+          return false;
+        }
+      }
+      return true;
+    },
+    buildItems() {
+      const items = [];
+      this.fields.forEach((f, idx) => {
+        const val = this.formData[f.id];
+        const required = !!f.required;
+        const type = f.field_type;
+        const ro = type === 'sensor_data' || type === 'computed';
+        let inputValue = Array.isArray(val) ? val.join(',') : (val == null ? '' : String(val));
+        let compareResult = 'pass';
+        let failReason = '';
+        if (!ro && required && !inputValue) {
+          compareResult = 'fail';
+          failReason = '未填写';
+        }
+        items.push({
+          fieldId: f.id,
+          itemSeq: f.sort_order != null ? f.sort_order : (idx + 1),
+          itemName: f.field_label || f.field_name,
+          itemCategory: 'weekly',
+          itemType: type,
+          inputValue: inputValue,
+          standardValue: f.default_value || '',
+          compareRule: f.validation_rule || null,
+          compareResult: compareResult,
+          reviewRequired: compareResult === 'fail' ? 1 : 0,
+          failReason: failReason || null
+        });
+      });
+      return items;
+    },
+    async submit() {
+      if (!this.signName.trim()) { utils.toast('请填写签名'); return; }
+      this.submitting = true;
       try {
-        this._saveCurrent();
-        await api.post(`/api/mobile/weekly/${this.weeklyId}/submit`, {});
+        let id = this.editId;
+        if (!id) {
+          const created = await api.post('/api/mobile/weekly', {
+            deviceId: this.form.deviceId,
+            weekNo: this.form.weekNo,
+            templateId: this.form.templateId,
+            templateVersion: this.form.templateVersion
+          });
+          id = created.id || (created.data && created.data.id);
+        }
+        const items = this.buildItems();
+        if (items.length) await api.post('/api/mobile/weekly/' + id + '/items', { items: items });
+        await api.post('/api/mobile/weekly/' + id + '/submit', { signature: this.signName.trim() });
         utils.toast('提交成功');
-        setTimeout(() => history.back(), 1500);
+        setTimeout(() => utils.go('/weekly'), 900);
       } catch (e) {
-        this.submiting = false;
-        utils.toast('提交失败');
+        if (!this._gone) utils.toast((e && e.message) || '提交失败');
+        this.submitting = false;
       }
     },
-    progressWidth() {
-      if (this.totalCount <= 0) return '0%';
-      return (this.completedCount / this.totalCount * 100).toFixed(1) + '%';
+    goList() {
+      utils.go('/weekly');
     },
-    itemDone(item) {
-      return (item.value !== null && item.value !== undefined && item.value !== '') ? 'done' : '';
-    },
-    isRadio(type) { return type === 'radio'; },
-    isTextarea(type) { return type === 'textarea'; }
-  }
+    hasFail() {
+      return this.stats.fail > 0;
+    }
+  },
+  unmounted() { this._gone = true; }
 };

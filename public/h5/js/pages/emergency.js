@@ -1,211 +1,183 @@
-// M-13/M-14 应急救援
+// 应急事件列表 → H5 (Vue3 global build)
+// GET /api/mobile/emergencies → { data: [{ id, event_no, device_name, alarm_type, alarm_source, trapped_count, status, start_time, end_time }] }
+// 状态 tab：全部 | 进行中 | 已完成
+// Vue 模板安全：逻辑全部在 computed / methods，模板内无 && || 裸& > <
 window.Pages = window.Pages || {};
 window.Pages.emergency = {
   template: `
-<div class="page">
-  <!-- 顶部按钮 -->
-  <div class="action-bar">
-    <button class="btn-primary" @click="showNewForm">新建应急事件</button>
-  </div>
-  
-  <!-- 加载态 -->
-  <div v-if="loading" class="empty-state"><text class="muted">加载中...</text></div>
-  <div v-else-if="list.length===0" class="empty-state"><text class="muted">暂无应急事件</text></div>
-  
-  <!-- 事件列表 -->
-  <div v-else class="list-wrap">
-    <div v-for="item in list" :key="item.id"
-      class="list-item card"
-      @click="goDetail(item.id)">
-      <div class="item-main">
-        <div class="item-title">{{titleOf(item)}}{{item.id ? ' #' + item.id : ''}}</div>
-        <div class="status-badge" :style="{background:statusCfg(item.status).color,color:'#fff'}">{{statusCfg(item.status).label}}</div>
+  <div class="page em">
+    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+    <template v-else>
+      <div class="tabs-bar">
+        <span v-for="t in tabs" :key="t.key" class="tab-item" :class="tabClass(t.key)" @click="onTab(t.key)">{{ t.label }}</span>
       </div>
-      <div class="item-sub muted">
-        <text v-if="item.device_name">设备：{{item.device_name}}</text>
-        <text v-if="trappedHint(item)"> | 被困人数：{{item.trapped_count}}</text>
-        <text v-if="item.create_time"> | {{item.create_time}}</text>
-      </div>
-      <div v-if="item.status!=='completed'" class="action-row">
-        <button class="btn-sm" size="mini" :data-id="item.id" :data-status="item.status" @click="updateStatus(item.id, item.status)">推进状态 ›</button>
-      </div>
-    </div>
-  </div>
-  
-  <!-- 新建表单弹层 -->
-  <div v-if="showFormFlag" class="mask" @click="hideForm">
-    <div class="form-panel" @click.stop>
-      <div class="form-title">新建应急事件</div>
-      
-      <!-- 报警类型 -->
-      <div class="form-item">
-        <text class="form-label">报警类型 *</text>
-        <select class="form-input" v-model="form.alarm_type">
-          <option value="">请选择</option>
-          <option v-for="t in alarmTypes" :key="t" :value="t">{{t}}</option>
-        </select>
-      </div>
-      
-      <!-- 设备 -->
-      <div class="form-item">
-        <text class="form-label">关联设备</text>
-        <div class="flex-row">
-          <input class="form-input" placeholder="设备名称/编号" v-model="form.device_name" style="flex:1" />
-          <button class="btn-sm" @click="scanDevice" style="margin-left:8rpx">扫码</button>
+
+      <div class="list-wrap">
+        <div v-for="item in filteredList" :key="item.id" class="list-item card" @click="goDetail(item.id)">
+          <div class="em-top">
+            <span class="em-dev">{{ deviceLabel(item) }}</span>
+            <span class="status-badge" :class="statusClass(item.status)">{{ statusLabel(item.status) }}</span>
+          </div>
+
+          <div class="em-alarm" :style="{ background: alarmBg(item.alarm_type), color: alarmColor(item.alarm_type) }">
+            <span class="em-alarm-icon">{{ alarmIcon(item.alarm_type) }}</span>
+            <span class="em-alarm-type">{{ item.alarm_type }}</span>
+          </div>
+
+          <div v-if="showTrapped(item)" class="em-trapped">{{ trappedText(item) }}</div>
+
+          <div class="em-meta muted">
+            <span>开始：{{ startTime(item) }}</span>
+          </div>
+          <div v-if="showDuration(item)" class="em-duration">
+            <span class="em-dur-label">持续</span>
+            <span class="em-dur-value">{{ durationText(item) }}</span>
+          </div>
+
+          <!-- 4 阶段进度条 -->
+          <div class="prog">
+            <template v-for="(s,i) in stages" :key="s.key">
+              <div v-if="showConnector(i)" class="prog-connector" :class="connectorClass(item, i)"></div>
+              <div class="prog-step" :class="stageClass(item, i)">
+                <div class="prog-dot"></div>
+                <div class="prog-label">{{ s.label }}</div>
+              </div>
+            </template>
+          </div>
         </div>
+        <div v-if="showEmpty" class="empty-state"><span class="muted">暂无应急事件</span></div>
       </div>
-      
-      <!-- 被困人数 -->
-      <div class="form-item">
-        <text class="form-label">被困人数</text>
-        <input class="form-input" type="number" placeholder="请输入" v-model="form.trapped_count" />
-      </div>
-      
-      <!-- 描述 -->
-      <div class="form-item">
-        <text class="form-label">情况描述 *</text>
-        <textarea class="form-textarea" placeholder="请详细描述情况（至少5字）" v-model="form.description" />
-      </div>
-      
-      <!-- 联系人 -->
-      <div class="form-item">
-        <text class="form-label">紧急联系人</text>
-        <input class="form-input" placeholder="姓名" v-model="form.contact_name" />
-      </div>
-      <div class="form-item">
-        <text class="form-label">联系电话</text>
-        <input class="form-input" type="number" placeholder="手机号" v-model="form.contact_phone" />
-      </div>
-      
-      <!-- 操作 -->
-      <div class="form-actions">
-        <button class="btn-default" @click="hideForm">取消</button>
-        <button class="btn-primary" @click="submitForm" :disabled="submitting">提交</button>
-      </div>
-    </div>
+
+      <div class="fab" @click="showNewForm">＋ 上报事件</div>
+    </template>
+
   </div>
-</div>
-`,
-  data() {
+  `,
+  data: function () {
     return {
-      list: [],
       loading: true,
-      showFormFlag: false,
-      form: {
-        alarm_type: '',
-        device_id: '',
-        device_name: '',
-        trapped_count: '',
-        description: '',
-        contact_name: '',
-        contact_phone: ''
-      },
-      submitting: false,
-      alarmTypes: ['困人报警', '故障报警', '物联网报警', '人工报警']
+      list: [],
+      activeStatus: 'all',
+      now: Date.now(),
+      timer: null,
+      tabs: [
+        { key: 'all', label: '全部' },
+        { key: 'ongoing', label: '进行中' },
+        { key: 'completed', label: '已完成' }
+      ],
+      stages: [
+        { key: 'responding', label: '响应' },
+        { key: 'processing', label: '处置' },
+        { key: 'recovering', label: '恢复' },
+        { key: 'completed', label: '完成' }
+      ]
     };
   },
-  mounted() {
+  computed: {
+    filteredList: function () {
+      if (this.activeStatus === 'all') return this.list;
+      if (this.activeStatus === 'completed') {
+        return this.list.filter(function (x) { return x.status === 'completed'; });
+      }
+      if (this.activeStatus === 'ongoing') {
+        return this.list.filter(function (x) { return x.status !== 'completed' && x.status !== 'cancelled'; });
+      }
+      var s = this.activeStatus;
+      return this.list.filter(function (x) { return x.status === s; });
+    },
+    showEmpty: function () {
+      return this.filteredList.length === 0;
+    },
+    // 带参 helper：以 computed 返回函数的方式实现，既在 computed 中声明又可在模板中传参调用
+    alarmIcon: function () {
+      var m = { '困人': '🛗', '坠落': '⬇️', '剪切': '✂️', '火灾': '🔥', '停电': '⚡', '其他': '⚠️' };
+      return function (type) { return m[type] || '🚨'; };
+    },
+    alarmBg: function () {
+      var m = { '困人': '#fff7e6', '坠落': '#fff1f0', '剪切': '#fff1f0', '火灾': '#fff1f0', '停电': '#fff7e6' };
+      return function (type) { return m[type] || '#f5f5f5'; };
+    },
+    alarmColor: function () {
+      var m = { '困人': '#d46b08', '坠落': '#cf1322', '剪切': '#cf1322', '火灾': '#cf1322', '停电': '#d46b08' };
+      return function (type) { return m[type] || '#666'; };
+    },
+    statusLabel: function () {
+      var m = { responding: '响应中', processing: '处置中', recovering: '恢复中', completed: '已完成', cancelled: '已取消' };
+      return function (s) { return m[s] || s || ''; };
+    },
+    statusClass: function () {
+      var m = { responding: 'badge-blue', processing: 'badge-orange', recovering: 'badge-green', completed: 'badge-gray', cancelled: 'badge-gray' };
+      return function (s) { return m[s] || 'badge-gray'; };
+    }
+  },
+  mounted: function () {
     this.load();
+    var self = this;
+    this.timer = setInterval(function () { self.now = Date.now(); }, 1000);
+  },
+  unmounted: function () {
+    if (this.timer) clearInterval(this.timer);
   },
   methods: {
-    async load() {
+    load: async function () {
       this.loading = true;
       try {
-        const d = await api.get('/api/mobile/emergencies');
-        this.list = d.data || d || [];
+        var d = await api.get('/api/mobile/emergencies');
+        this.list = (d && d.data) ? d.data : (Array.isArray(d) ? d : []);
+      } catch (e) {
+        utils.toast((e && e.message) || '加载失败');
+        this.list = [];
+      } finally {
         this.loading = false;
-      } catch (e) {
-        this.loading = false;
-        utils.toast('网络错误');
       }
     },
-    titleOf(item) {
-      return item.event_title || item.alarm_type || '应急事件';
+    onTab: function (k) { this.activeStatus = k; },
+    tabClass: function (k) { return this.activeStatus === k ? 'active' : ''; },
+    goDetail: function (id) { utils.go('/emergency_form?id=' + id); },
+    showNewForm: function () { utils.go('/emergency_form'); },
+
+    deviceLabel: function (item) {
+      var name = item.device_name || '设备';
+      return item.device_code ? (name + '（' + item.device_code + '）') : name;
     },
-    trappedHint(item) {
-      return item.trapped_count && item.trapped_count > 0;
+    showTrapped: function (item) {
+      return !!(item.trapped_count && item.trapped_count > 0);
     },
-    statusCfg(status) {
-      const STATUS_MAP = {
-        responding: { label: '响应中', color: '#FF8C00' },
-        processing: { label: '处置中', color: '#1082FF' },
-        recovering: { label: '恢复中', color: '#FAAD14' },
-        completed: { label: '已完成', color: '#52C41A' }
-      };
-      return STATUS_MAP[status] || { label: status, color: '#999' };
+    trappedText: function (item) {
+      return item.trapped_count + ' 人被困';
     },
-    showNewForm() {
-      this.showFormFlag = true;
-      this.form = {
-        alarm_type: '', device_id: '', device_name: '',
-        trapped_count: '', description: '', contact_name: '', contact_phone: ''
-      };
+    startTime: function (item) { return utils.formatDateTime(item.start_time); },
+    showDuration: function (item) { return !!item.start_time; },
+    durationText: function (item) {
+      var start = new Date(item.start_time).getTime();
+      if (isNaN(start)) return '';
+      var end = item.end_time ? new Date(item.end_time).getTime() : this.now;
+      var ms = end - start;
+      if (ms < 0) ms = 0;
+      var total = Math.floor(ms / 1000);
+      var h = Math.floor(total / 3600);
+      var m = Math.floor((total % 3600) / 60);
+      var s = total % 60;
+      var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+      return (h > 0 ? h + '时' : '') + pad(m) + '分' + pad(s) + '秒';
     },
-    hideForm() {
-      this.showFormFlag = false;
+
+    stageIndex: function (item) {
+      var m = { responding: 0, processing: 1, recovering: 2, completed: 3 };
+      var s = item.status;
+      return m[s] != null ? m[s] : -1;
     },
-    async scanDevice() {
-      try {
-        const result = await utils.scanCode();
-        const code = result.trim();
-        const d = await api.get('/api/mobile/devices/scan', { code: code });
-        const dev = d.data || d;
-        if (dev && dev.id) {
-          this.form.device_id = dev.id;
-          this.form.device_name = dev.device_name || dev.name;
-          utils.toast('设备已关联');
-        } else {
-          utils.toast('设备不存在');
-        }
-      } catch (e) {
-        utils.toast('设备查询失败');
-      }
+    stageClass: function (item, i) {
+      var idx = this.stageIndex(item);
+      if (idx < 0) return 'cancel';
+      if (i < idx) return 'done';
+      if (i === idx) return 'on';
+      return '';
     },
-    async submitForm() {
-      const { alarm_type, description } = this.form;
-      if (!alarm_type) {
-        utils.toast('请选择报警类型');
-        return;
-      }
-      if (!description || description.trim().length < 5) {
-        utils.toast('请填写描述（至少5字）');
-        return;
-      }
-      this.submitting = true;
-      try {
-        await api.post('/api/mobile/emergencies', this.form);
-        this.submitting = false;
-        this.showFormFlag = false;
-        utils.toast('应急事件已创建');
-        this.load();
-      } catch (e) {
-        this.submitting = false;
-        utils.toast('网络错误');
-      }
-    },
-    async updateStatus(id, status) {
-      const statusOrder = ['responding', 'processing', 'recovering', 'completed'];
-      const idx = statusOrder.indexOf(status);
-      const nextStatus = idx >= 0 && idx < statusOrder.length - 1 ? statusOrder[idx + 1] : null;
-      
-      if (!nextStatus) {
-        utils.toast('已是最终状态');
-        return;
-      }
-      
-      const ok = await utils.confirm(`确定将状态更新为"${this.statusCfg(nextStatus).label}"？`);
-      if (!ok) return;
-      
-      try {
-        await api.put(`/api/mobile/emergencies/${id}`, { status: nextStatus });
-        utils.toast('状态已更新');
-        this.load();
-      } catch (e) {
-        utils.toast('网络错误');
-      }
-    },
-    goDetail(id) {
-      utils.toast('事件进行中，请稍候');
+    showConnector: function (i) { return i > 0; },
+    connectorClass: function (item, i) {
+      var idx = this.stageIndex(item);
+      return (idx >= 0 && i <= idx) ? 'done' : '';
     }
   }
 };

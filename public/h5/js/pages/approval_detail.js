@@ -1,222 +1,227 @@
+// 审批详情
 window.Pages = window.Pages || {};
 window.Pages.approval_detail = {
   template: `
 <div class="page">
-  <!-- 加载态 -->
   <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
 
-  <!-- 审批单信息 -->
-  <div v-else-if="approval" class="approval-wrap">
-
-    <!-- 基本信息卡 -->
+  <div v-else-if="hasData" class="approval-wrap">
     <div class="card info-card">
-      <div class="biz-type-tag">{{bizTypeLabel}}</div>
-      <div class="info-title">{{approval.biz_title || approval.title || '审批单'}}</div>
+      <div class="biz-type-tag" style="display:inline-block;background:#eef4ff;color:#1677FF;font-size:12px;padding:2px 8px;border-radius:10px;">{{bizLabel(data.biz_type)}}</div>
+      <div class="info-title" style="font-size:18px;font-weight:700;margin:8px 0 6px;">{{bizTitle()}}</div>
       <div class="info-row muted">
-        <span v-if="approval.applicant_name || approval.applicant">申请人：{{approval.applicant_name || approval.applicant}}</span>
-        <span v-if="approval.create_time || approval.created_at"> | {{approval.create_time || approval.created_at}}</span>
+        <span v-if="hasApplicant">申请人：{{applicantName()}}</span>
+        <span v-if="hasCreatedAt"> · {{createdAt()}}</span>
       </div>
-      <div class="info-row">
-        <span class="status-badge" :style="{background: approval.current_node_status === 'PENDING' ? '#FF8C00' : '#52C41A', color: '#fff'}">
-          {{approval.current_node_status === 'PENDING' ? '待审批' : '已完结'}}
-        </span>
-      </div>
+      <div class="info-row muted" v-if="hasCurrentNode">当前节点：{{data.current_node}}</div>
     </div>
 
-    <!-- 审批节点时间线 -->
-    <div class="section" v-if="nodeList.length > 0">
-      <div class="section-title">审批节点</div>
+    <div class="section" v-if="hasNodes">
+      <div class="section-title" style="font-size:15px;font-weight:600;margin:4px 0 10px;">审批流程</div>
       <div class="timeline">
-        <div
-          v-for="(item, index) in nodeList"
-          :key="item.node_seq || index"
-          class="timeline-item"
-        >
-          <div class="tl-left">
-            <div class="tl-icon" :style="{background: nodeColor(item.status), color: '#fff'}">
-              {{nodeIcon(item.status)}}
-            </div>
-            <div v-if="index < nodeList.length - 1" class="tl-line"></div>
-          </div>
-          <div class="tl-right">
-            <div class="tl-name" :class="{ 'current-node': item.status === 'PENDING' }">
-              {{item.node_name || ('节点' + item.node_seq)}}
-            </div>
-            <div v-if="item.approver_email || item.approver" class="tl-sub muted">
-              审批人：{{item.approver_email || item.approver}}
-            </div>
-            <div v-if="item.decided_at || item.update_time" class="tl-sub muted">
-              {{item.decided_at || item.update_time}}
-            </div>
-            <div v-if="item.comment" class="tl-comment muted">
-              意见：{{item.comment}}
-            </div>
+        <div v-for="(node, idx) in nodeList" :key="nodeKey(node, idx)" class="tl-item" :class="nodeClass(node)">
+          <div class="tl-dot" :style="{background: nodeColor(node.status)}"></div>
+          <div v-if="!isLast(idx)" class="tl-line"></div>
+          <div class="tl-body">
+            <div class="tl-title">{{nodeName(node, idx)}}</div>
+            <div class="tl-meta">{{nodeStatusLabel(node.status)}}<span v-if="hasNodeApprover(node)"> · 审批人：{{nodeApprover(node)}}</span></div>
+            <div class="tl-meta" v-if="hasNodeDecidedAt(node)">{{nodeDecidedAt(node)}}</div>
+            <div class="tl-comment" v-if="node.comment">意见：{{node.comment}}</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 审批操作区（仅当前节点且 PENDING 时显示） -->
-    <div v-if="canApprove()" class="card action-panel">
-      <div class="section-title">审批意见</div>
-
-      <!-- 意见输入 -->
+    <div v-if="canApprove" class="card action-panel">
+      <div class="section-title" style="font-size:15px;font-weight:600;margin-bottom:10px;">审批意见</div>
       <div class="form-item">
         <div class="form-label">审批意见</div>
-        <textarea
-          class="form-textarea"
-          placeholder="请输入审批意见（驳回时必填≥10字）"
-          v-model="comment"
-        ></textarea>
+        <textarea class="fi-input" v-model="comment" placeholder="请输入审批意见（驳回时必填）"></textarea>
       </div>
-
-      <!-- AI 对比摘要（可选） -->
       <div class="form-item">
-        <div class="form-label">AI 对比摘要（可选）</div>
-        <textarea
-          class="form-textarea"
-          placeholder="AI 比对结果摘要"
-          v-model="aiComparisonSummary"
-        ></textarea>
-      </div>
-      <div v-if="aiComparisonSummary" class="form-item">
-        <div class="form-label">AI 置信度</div>
-        <div class="confidence-row">
-          <input type="range" min="0" max="100" :value="Math.round(aiConfidence * 100)" @input="bindConfidence" />
-          <span class="confidence-val">{{Math.round(aiConfidence * 100)}}%</span>
-        </div>
+        <div class="form-label">AI 置信度（{{aiConfidence}}%）</div>
+        <input type="range" min="0" max="100" step="1" v-model.number="aiConfidence" style="width:100%;" />
       </div>
 
-      <!-- 转审区 -->
-      <div v-if="showForward" class="form-item">
+      <div class="flex gap8">
+        <button class="ab-btn ab-green" :disabled="submitting" @click="doApprove">✅ 批准</button>
+        <button class="ab-btn ab-red" :disabled="submitting" @click="doReject">❌ 驳回</button>
+        <button class="ab-btn ab-blue" :disabled="submitting" @click="toggleForward">↪️ 转审</button>
+      </div>
+
+      <div v-show="showForward" class="form-item mt10">
         <div class="form-label">转审至（邮箱）</div>
-        <input class="form-input" type="text" placeholder="被转审人邮箱" v-model="forwardEmail" />
-      </div>
-
-      <!-- 操作按钮 -->
-      <div class="action-btns">
-        <button class="btn-approve" @click="doApprove" :disabled="submitting">✅ 批准</button>
-        <button class="btn-reject" @click="doReject" :disabled="submitting">❌ 驳回</button>
-        <button class="btn-forward" @click="showForward ? doForward() : toggleForward()" :disabled="submitting">
-          {{showForward ? '确认转审' : '↪️ 转审'}}
-        </button>
+        <input class="fi-input" type="text" v-model="forwardEmail" placeholder="被转审人邮箱" />
+        <button class="ab-btn ab-blue mt8" :disabled="submitting" @click="doForward">确认转审</button>
       </div>
     </div>
-
   </div>
+
+  <div v-else class="empty-state"><span class="muted">未找到审批单</span></div>
 </div>
-  `,
+`,
   data() {
     return {
       id: null,
-      approval: null,
+      data: null,
       loading: true,
       comment: '',
-      aiComparisonSummary: '',
-      aiConfidence: 0.8,
+      aiConfidence: 80,
       forwardEmail: '',
-      submitting: false,
-      showForward: false
+      showForward: false,
+      submitting: false
     };
   },
   computed: {
-    nodeList() {
-      if (!this.approval) return [];
-      return this.approval.nodes || this.approval.node_list || [];
+    hasData: function () {
+      return !!this.data;
     },
-    bizTypeLabel() {
-      const m = {
-        daily: '日管控检查',
-        inspection: '日管控检查',
-        weekly: '周排查',
-        hazard: '隐患排查',
-        emergency: '应急事件'
-      };
-      return m[this.approval.biz_type] || '审批';
+    canApprove: function () {
+      return !!(this.data && this.data.current_node_status === 'PENDING');
+    },
+    hasNodes: function () {
+      return this.nodeList.length > 0;
+    },
+    nodeList: function () {
+      return this.data && this.data.nodes ? this.data.nodes : [];
     }
   },
   mounted() {
-    this.id = this.query.id;
+    var r = Router.parse();
+    this.id = r.query.id;
     if (this.id) this.load(this.id);
+    else this.loading = false;
   },
   methods: {
-    nodeIcon(status) {
-      const m = { PENDING: '⏳', APPROVED: '✅', REJECTED: '❌', FORWARDED: '↪️', SKIPPED: '⏭️' };
-      return m[status] || '⬜';
+    bizLabel: function (type) {
+      var m = {
+        inspection: '日管控', daily: '日管控', weekly: '周排查',
+        hazard: '隐患上报', emergency: '应急事件',
+        work_order: '整改工单', monthly: '月调度'
+      };
+      return m[type] || type || '审批';
     },
-    nodeColor(status) {
-      const m = { PENDING: '#FF8C00', APPROVED: '#52C41A', REJECTED: '#F5222D', FORWARDED: '#1082FF', SKIPPED: '#BFBFBF' };
-      return m[status] || '#999';
+    bizTitle: function () {
+      return (this.data && (this.data.biz_title || this.data.title)) || '审批单';
     },
-    canApprove() {
-      return !!(this.approval && this.approval.current_node_status === 'PENDING');
+    hasApplicant: function () {
+      return !!(this.data && (this.data.applicant_name || this.data.applicant));
     },
-    bindConfidence(e) {
-      this.aiConfidence = parseFloat(e.target.value) / 100;
+    applicantName: function () {
+      return (this.data && (this.data.applicant_name || this.data.applicant)) || '';
     },
-    toggleForward() {
+    hasCreatedAt: function () {
+      return !!(this.data && (this.data.created_at || this.data.create_time));
+    },
+    createdAt: function () {
+      return (this.data && (this.data.created_at || this.data.create_time)) || '';
+    },
+    hasCurrentNode: function () {
+      return !!(this.data && this.data.current_node);
+    },
+    nodeKey: function (node, idx) {
+      return node.seq != null ? node.seq : idx;
+    },
+    isLast: function (idx) {
+      return idx === this.nodeList.length - 1;
+    },
+    nodeClass: function (node) {
+      return node.status === 'PENDING' ? 'on' : '';
+    },
+    nodeName: function (node, idx) {
+      return node.name || node.node_name || ('节点' + (node.seq != null ? node.seq : idx + 1));
+    },
+    hasNodeApprover: function (node) {
+      return !!(node.approver_name || node.approver);
+    },
+    nodeApprover: function (node) {
+      return node.approver_name || node.approver || '';
+    },
+    hasNodeDecidedAt: function (node) {
+      return !!(node.decided_at || node.update_time);
+    },
+    nodeDecidedAt: function (node) {
+      return node.decided_at || node.update_time || '';
+    },
+    nodeColor: function (status) {
+      var m = {
+        PENDING: '#FF8C00', APPROVED: '#52C41A',
+        REJECTED: '#F5222D', FORWARDED: '#1677FF', SKIPPED: '#BFBFBF'
+      };
+      return m[String(status || '').toUpperCase()] || '#999';
+    },
+    nodeStatusLabel: function (status) {
+      var m = {
+        PENDING: '待处理', APPROVED: '已通过',
+        REJECTED: '已驳回', FORWARDED: '已转审', SKIPPED: '已跳过'
+      };
+      return m[String(status || '').toUpperCase()] || '未开始';
+    },
+    toggleForward: function () {
       this.showForward = !this.showForward;
     },
-    async load(id) {
+    load: async function (id) {
       this.loading = true;
       try {
-        const d = await api.get('/api/mobile/approvals/' + id);
-        this.approval = d.data || d;
+        var d = await api.get('/api/mobile/approvals/' + id);
+        this.data = d.data || d;
       } catch (e) {
-        utils.toast(e.message || '网络错误');
+        utils.toast('加载失败');
       } finally {
         this.loading = false;
       }
     },
-    async doApprove() {
+    doApprove: async function () {
       if (this.submitting) return;
-      if (!utils.confirm('确定批准该申请？')) return;
       this.submitting = true;
       try {
-        const payload = { comment: this.comment };
-        if (this.aiComparisonSummary) {
-          payload.aiComparisonSummary = this.aiComparisonSummary;
-          payload.aiConfidence = this.aiConfidence;
-        }
-        await api.post('/api/mobile/approvals/' + this.id + '/approve', payload);
-        utils.toast('已批准');
-        setTimeout(() => history.back(), 1200);
+        await api.post('/api/mobile/approvals/' + this.id + '/approve', {
+          comment: this.comment,
+          aiConfidence: parseFloat(this.aiConfidence) / 100
+        });
+        utils.toast('审批成功');
+        this.load(this.id);
       } catch (e) {
-        utils.toast(e.message || '网络错误');
+        utils.toast('操作失败');
       } finally {
         this.submitting = false;
       }
     },
-    async doReject() {
-      if (this.comment.trim().length < 10) {
-        utils.toast('驳回意见至少10个字');
+    doReject: async function () {
+      if (this.submitting) return;
+      if (!this.comment || this.comment.trim().length < 1) {
+        utils.toast('请填写驳回意见');
         return;
       }
-      if (!utils.confirm('确定驳回该申请？')) return;
       this.submitting = true;
       try {
         await api.post('/api/mobile/approvals/' + this.id + '/reject', { comment: this.comment });
         utils.toast('已驳回');
-        setTimeout(() => history.back(), 1200);
+        utils.go('/approval');
       } catch (e) {
-        utils.toast(e.message || '网络错误');
+        utils.toast('操作失败');
       } finally {
         this.submitting = false;
       }
     },
-    async doForward() {
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRe.test(this.forwardEmail.trim())) {
+    doForward: async function () {
+      if (this.submitting) return;
+      var email = (this.forwardEmail || '').trim();
+      var re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!re.test(email)) {
         utils.toast('请输入正确的邮箱');
         return;
       }
       this.submitting = true;
       try {
-        await api.post('/api/mobile/approvals/' + this.id + '/forward', { forwardTo: this.forwardEmail.trim() });
+        await api.post('/api/mobile/approvals/' + this.id + '/forward', {
+          forwardEmail: email,
+          comment: this.comment
+        });
         utils.toast('已转审');
-        setTimeout(() => history.back(), 1200);
+        utils.go('/approval');
       } catch (e) {
-        utils.toast(e.message || '网络错误');
+        utils.toast('操作失败');
       } finally {
         this.submitting = false;
       }
