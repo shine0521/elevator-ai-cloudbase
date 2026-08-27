@@ -74,7 +74,11 @@ window.Pages.login = {
     }
   },
 
-  mounted: function () { this.load(); },
+  mounted: function () {
+    // 进登录页时清掉旧 token，避免旧 token 触发 401 → toast → 退回登录页的循环
+    Store.logout();
+    this.load();
+  },
 
   template: `
 <div class="page login-page">
