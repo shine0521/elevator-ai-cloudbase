@@ -1,0 +1,85 @@
+<view class="page">
+  <!-- 加载态 -->
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+
+  <!-- 设备基本信息卡 -->
+  <view wx:elif="{{device}}" class="device-card card">
+    <view class="device-header">
+      <view class="device-name">{{device.device_name || device.name || '未知设备'}}</view>
+      <view class="risk-badge" style="background:{{riskColor(device.risk_level)}};color:#fff">
+        {{device.risk_level || device.risk || '未知'}}
+      </view>
+    </view>
+
+    <view class="info-grid">
+      <view class="info-row"><text class="info-label">设备编号</text><text class="info-val">{{device.device_no || device.code || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">设备型号</text><text class="info-val">{{device.model || device.device_model || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">安装位置</text><text class="info-val">{{device.location || device.address || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">运行状态</text>
+        <text class="info-val" style="color:{{statusColor(device.status)}}">{{device.status || '-'}}</text>
+      </view>
+      <view class="info-row"><text class="info-label">所属单位</text><text class="info-val">{{device.unit_name || device.building || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">注册代码</text><text class="info-val">{{device.register_code || device.registration_code || '-'}}</text></view>
+    </view>
+  </view>
+
+  <!-- Tab 切换 -->
+  <view wx:if="{{device}}" class="tab-bar card">
+    <view class="tab {{tab==='inspection'?'active':''}}" bindtap="switchTab" data-tab="inspection">检查记录</view>
+    <view class="tab {{tab==='warning'?'active':''}}" bindtap="switchTab" data-tab="warning">预警记录</view>
+    <view class="tab {{tab==='doc'?'active':''}}" bindtap="switchTab" data-tab="doc">文档列表</view>
+  </view>
+
+  <!-- 检查记录列表 -->
+  <view wx:if="{{tab==='inspection'}}" class="tab-content">
+    <view wx:if="{{inspections.length===0}}" class="empty-state"><text class="muted">暂无检查记录</text></view>
+    <view
+      wx:for="{{inspections}}"
+      wx:key="id"
+      class="list-item card"
+      bindtap="goInspection"
+      data-item="{{item}}"
+    >
+      <view class="item-title">{{item.inspection_no || item.inspection_date || '记录' + (item.id||'')}} {{item._source==='weekly'?'(周排查)':'(日管控)'}}</view>
+      <view class="item-sub muted">
+        {{item.inspection_date || item.create_time || ''}}
+        <text wx:if="{{item.inspector_name}}"> | {{item.inspector_name}}</text>
+        <text wx:if="{{item.result}}"> | {{item.result}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 预警记录列表 -->
+  <view wx:if="{{tab==='warning'}}" class="tab-content">
+    <view wx:if="{{warnings.length===0}}" class="empty-state"><text class="muted">暂无预警记录</text></view>
+    <view
+      wx:for="{{warnings}}"
+      wx:key="id"
+      class="list-item card"
+      bindtap="goWarning"
+      data-item="{{item}}"
+    >
+      <view class="item-title">{{item.alarm_type || item.warning_type || '预警' + (item.id||'')}}</view>
+      <view class="item-sub muted">
+        {{item.create_time || item.alarm_time || ''}}
+        <text wx:if="{{item.level}}"> | {{item.level}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 文档列表 -->
+  <view wx:if="{{tab==='doc'}}" class="tab-content">
+    <view wx:if="{{docs.length===0}}" class="empty-state"><text class="muted">暂无文档</text></view>
+    <view
+      wx:for="{{docs}}"
+      wx:key="id"
+      class="list-item card"
+    >
+      <view class="item-title">{{item.doc_title || item.title || '文档' + (item.id||'')}}</view>
+      <view class="item-sub muted">
+        {{item.doc_type || item.type || '-'}}
+        <text wx:if="{{item.status}}"> | {{item.status}}</text>
+      </view>
+    </view>
+  </view>
+</view>

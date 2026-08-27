@@ -1,0 +1,26 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+  <view wx:else class="card">
+    <view class="form-item">
+      <text class="form-label">隐患类型</text>
+      <input class="form-input" value="{{form.hazard_type}}" placeholder="请输入隐患类型" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">设备名称</text>
+      <input class="form-input" value="{{form.device_name}}" placeholder="请输入" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">风险等级</text>
+      <input class="form-input" value="{{form.risk_level}}" placeholder="HIGH/MEDIUM/LOW" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">描述</text>
+      <textarea class="form-textarea" value="{{form.description}}" placeholder="请详细描述隐患情况" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">整改措施</text>
+      <textarea class="form-textarea" value="{{form.rectification}}" placeholder="请输入整改措施" />
+    </view>
+    <button class="btn-primary" bindtap="submit" loading="{{submitting}}">保存</button>
+  </view>
+</view>

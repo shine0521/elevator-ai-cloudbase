@@ -1,0 +1,86 @@
+.page { min-height: 100vh; background: #F5F6FA; padding-bottom: 60rpx; }
+.section-title { font-size: 28rpx; color: #888; padding: 20rpx 32rpx 10rpx; }
+.card { background: #fff; margin: 0 32rpx 20rpx; border-radius: 12rpx; padding: 24rpx; }
+.section-title + .card { margin-top: 0; }
+
+/* 信息行 */
+.info-row { display: flex; padding: 12rpx 0; border-bottom: 1rpx solid #F5F6FA; gap: 16rpx; align-items: flex-start; }
+.info-row:last-child { border-bottom: none; }
+.label { font-size: 28rpx; color: #888; width: 160rpx; flex-shrink: 0; }
+.value { font-size: 28rpx; color: #333; flex: 1; }
+.value.multi { word-break: break-all; }
+
+/* 风险标签 */
+.risk-badge { display: inline-block; padding: 4rpx 14rpx; border-radius: 6rpx; font-size: 26rpx; }
+.risk-critical { background: #FFF1F0; color: #CF1322; }
+.risk-major    { background: #FFF7E6; color: #D46B08; }
+.risk-general  { background: #FFFBE6; color: #7CB305; }
+.risk-low      { background: #F6FFED; color: #389E0D; }
+
+/* 状态标签 */
+.tag { display: inline-block; padding: 4rpx 14rpx; border-radius: 6rpx; font-size: 26rpx; }
+.tag-warn    { background: #FFF7E6; color: #FF6600; }
+.tag-info    { background: #E6F7FF; color: #1082FF; }
+.tag-primary { background: #F6FFED; color: #09B44A; }
+.tag-gray    { background: #F5F5F5; color: #888; }
+
+/* LSEB chips */
+.lseb-row { display: flex; flex-wrap: wrap; gap: 12rpx; padding: 12rpx 0 4rpx; }
+.lseb-chip { background: #F5F6FA; color: #333; border-radius: 8rpx; padding: 6rpx 16rpx; font-size: 26rpx; }
+.lseb-chip.risk-critical { background: #FFF1F0; color: #CF1322; }
+.lseb-chip.risk-major    { background: #FFF7E6; color: #D46B08; }
+.lseb-chip.risk-general  { background: #FFFBE6; color: #7CB305; }
+.lseb-chip.risk-low      { background: #F6FFED; color: #389E0D; }
+
+/* 进度时间线 */
+.progress-timeline { display: flex; align-items: center; padding: 16rpx 0; }
+.pt-item { display: flex; flex-direction: column; align-items: center; gap: 8rpx; }
+.pt-dot {
+  width: 20rpx; height: 20rpx; border-radius: 50%; background: #ddd;
+}
+.pt-item.done .pt-dot { background: #1082FF; }
+.pt-label { font-size: 22rpx; color: #888; }
+.pt-item.done .pt-label { color: #1082FF; }
+.pt-line { flex: 1; height: 3rpx; background: #ddd; margin-bottom: 24rpx; }
+.pt-line.done { background: #1082FF; }
+
+/* 表单 */
+.form-group { margin-bottom: 24rpx; }
+.form-label { font-size: 28rpx; color: #333; font-weight: 500; margin-bottom: 12rpx; }
+.textarea {
+  background: #fff; border: 1rpx solid #E5E5E5; border-radius: 12rpx;
+  padding: 20rpx 24rpx; font-size: 28rpx; width: 100%; box-sizing: border-box; min-height: 140rpx;
+}
+.choice-row { display: flex; gap: 20rpx; }
+.choice-btn {
+  flex: 1; text-align: center; padding: 20rpx; border-radius: 12rpx;
+  border: 2rpx solid #E5E5E5; font-size: 30rpx; color: #666;
+}
+.choice-btn.selected-pass { border-color: #09B44A; background: #F6FFED; color: #09B44A; font-weight: 600; }
+.choice-btn.selected-reject { border-color: #CF1322; background: #FFF1F0; color: #CF1322; font-weight: 600; }
+
+/* 照片 */
+.photo-row { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.photo-wrap { position: relative; }
+.photo-thumb { width: 160rpx; height: 160rpx; border-radius: 12rpx; }
+.photo-del {
+  position: absolute; top: -8rpx; right: -8rpx;
+  width: 36rpx; height: 36rpx; border-radius: 50%;
+  background: rgba(0,0,0,.5); color: #fff; font-size: 22rpx;
+  display: flex; align-items: center; justify-content: center;
+}
+.photo-add {
+  width: 160rpx; height: 160rpx; border-radius: 12rpx;
+  border: 2rpx dashed #ccc; color: #ccc; font-size: 60rpx;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.btn-primary {
+  width: 100%; background: #1082FF; color: #fff; border-radius: 44rpx;
+  font-size: 32rpx; font-weight: 600; padding: 24rpx 0; border: none; margin-top: 8rpx;
+}
+.done-card { text-align: center; padding: 60rpx 0; }
+.done-icon { display: block; font-size: 60rpx; color: #09B44A; margin-bottom: 16rpx; }
+.done-text { font-size: 30rpx; color: #09B44A; }
+.muted { color: #999; font-size: 28rpx; }
+.center { text-align: center; padding: 60rpx 0; }

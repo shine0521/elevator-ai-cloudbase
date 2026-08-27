@@ -1,0 +1,135 @@
+/* daily.wxss — M-03 日管控列表样式 */
+
+.page {
+  min-height: 100vh;
+  background: #f5f5f5;
+  padding-bottom: 140rpx;
+}
+
+/* ---------- 顶部筛选栏 ---------- */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  padding: 20rpx 24rpx;
+  gap: 16rpx;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.filter-btn {
+  padding: 10rpx 24rpx;
+  border-radius: 32rpx;
+  font-size: 26rpx;
+  color: #666;
+  background: #f0f0f0;
+  transition: all 0.2s;
+}
+
+.filter-btn.active {
+  background: #1890ff;
+  color: #fff;
+}
+
+/* ---------- 列表容器 ---------- */
+.list-wrap {
+  padding: 24rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+/* ---------- 卡片 ---------- */
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.device-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+  flex: 1;
+  margin-right: 16rpx;
+}
+
+.status-tag {
+  padding: 6rpx 20rpx;
+  border-radius: 24rpx;
+  font-size: 24rpx;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.card-row {
+  display: flex;
+  align-items: center;
+  margin-top: 12rpx;
+  font-size: 28rpx;
+}
+
+.label {
+  color: #999;
+  width: 140rpx;
+  flex-shrink: 0;
+}
+
+.val {
+  color: #333;
+  flex: 1;
+}
+
+.card-actions {
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #f0f0f0;
+  display: flex;
+  gap: 24rpx;
+}
+
+.btn-text {
+  font-size: 28rpx;
+  color: #1890ff;
+}
+
+/* ---------- 空状态 ---------- */
+.empty {
+  text-align: center;
+  padding: 120rpx 0;
+  color: #999;
+  font-size: 28rpx;
+  line-height: 1.8;
+}
+
+/* ---------- 加载更多 ---------- */
+.load-more {
+  text-align: center;
+  padding: 24rpx 0;
+  color: #999;
+  font-size: 26rpx;
+}
+
+/* ---------- 悬浮新建按钮 ---------- */
+.fab {
+  position: fixed;
+  bottom: 60rpx;
+  right: 40rpx;
+  background: #1890ff;
+  color: #fff;
+  padding: 24rpx 40rpx;
+  border-radius: 48rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  box-shadow: 0 8rpx 24rpx rgba(24, 144, 255, 0.4);
+  z-index: 100;
+}

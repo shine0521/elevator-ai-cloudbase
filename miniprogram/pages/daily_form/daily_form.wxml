@@ -1,0 +1,22 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+  <view wx:else class="card">
+    <view class="form-item">
+      <text class="form-label">设备名称</text>
+      <input class="form-input" value="{{form.device_name}}" placeholder="请输入" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">检查日期</text>
+      <input class="form-input" value="{{form.inspection_date}}" placeholder="请输入" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">检查结果</text>
+      <input class="form-input" value="{{form.result}}" placeholder="请输入" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">备注</text>
+      <textarea class="form-textarea" value="{{form.remark}}" placeholder="请输入备注" />
+    </view>
+    <button class="btn-primary" bindtap="submit" loading="{{submitting}}">保存</button>
+  </view>
+</view>

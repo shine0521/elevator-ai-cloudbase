@@ -1,0 +1,13 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+  <view wx:elif="{{order}}" class="card">
+    <view class="info-title" style="font-size:32rpx;font-weight:700;margin-bottom:20rpx">{{order.title || '工单详情'}}</view>
+    <view class="info-grid">
+      <view class="info-row"><text class="info-label">工单编号</text><text class="info-val">{{order.order_no || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">状态</text><text class="info-val">{{order.status || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">负责人</text><text class="info-val">{{order.assignee_name || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">描述</text><text class="info-val">{{order.description || '-'}}</text></view>
+      <view class="info-row"><text class="info-label">创建时间</text><text class="info-val">{{order.create_time || order.created_at || '-'}}</text></view>
+    </view>
+  </view>
+</view>

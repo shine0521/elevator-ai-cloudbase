@@ -1,0 +1,13 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+  <view wx:elif="{{list.length===0}}" class="empty-state"><text class="muted">暂无隐患记录</text></view>
+  <view wx:else class="list-wrap">
+    <view wx:for="{{list}}" wx:key="id" class="list-item card" bindtap="goForm" data-id="{{item.id}}">
+      <view class="item-main">
+        <view class="item-title">{{item.hazard_type || item.device_name || '隐患' + item.id}}</view>
+        <view class="status-badge" style="background:{{item.risk_level==='HIGH'?'#F5222D':item.risk_level==='MEDIUM'?'#FAAD14':'#52C41A'}};color:#fff">{{item.risk_level || '已记录'}}</view>
+      </view>
+      <view class="item-sub muted">{{item.create_time || item.created_at || ''}} {{item.status ? '| ' + item.status : ''}}</view>
+    </view>
+  </view>
+</view>

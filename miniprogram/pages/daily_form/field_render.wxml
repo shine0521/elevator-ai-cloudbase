@@ -1,0 +1,162 @@
+<!-- field_render.wxml
+     动态字段渲染引擎：被 daily_form.wxml include
+     每项通过 data-field="{{item.id}}" 接收 fieldId
+     字段类型映射 (utils/field.js):
+       text/textarea/number → 输入框
+       date → picker mode=date
+       select → picker（选项以 | 分隔）
+       checkbox → checkbox-group
+       radio → radio-group
+       photo/ai_recognition → 拍照按钮
+       file → 文件选择按钮
+       sensor_data/computed → 只读文本
+-->
+
+<!-- ============ text / number / textarea ============ -->
+<block wx:if="{{fieldTypes[item.fieldType || item.field_type]['component'] === 'input' ||
+                  item.fieldType === 'textarea'}}">
+  <view class="fi-control">
+    <textarea
+      wx:if="{{item.fieldType === 'textarea'}}"
+      class="field-textarea"
+      placeholder="请输入"
+      value="{{formData[item.id]}}"
+      bindinput="onFieldInput"
+      data-field="{{item.id}}"
+      disabled="{{isViewMode}}"
+      auto-height
+    />
+    <input
+      wx:else
+      class="field-input {{item.fieldType === 'number' ? 'num-input' : ''}}"
+      type="{{item.fieldType === 'number' ? 'digit' : 'text'}}"
+      placeholder="请输入"
+      value="{{formData[item.id]}}"
+      bindinput="onFieldInput"
+      data-field="{{item.id}}"
+      disabled="{{isViewMode}}"
+    />
+  </view>
+</block>
+
+<!-- ============ date ============ -->
+<block wx:if="{{item.fieldType === 'date'}}">
+  <view class="fi-control">
+    <picker
+      mode="date"
+      value="{{formData[item.id]}}"
+      bindchange="onFieldChange"
+      data-field="{{item.id}}"
+      disabled="{{isViewMode}}"
+    >
+      <view class="picker-btn">
+        {{formData[item.id] || '选择日期'}}
+      </view>
+    </picker>
+  </view>
+</block>
+
+<!-- ============ select ============ -->
+<block wx:if="{{item.fieldType === 'select'}}">
+  <view class="fi-control">
+    <picker
+      mode="selector"
+      range="{{(item.options || item.selectOptions || '').split('|')}}"
+      bindchange="onFieldChange"
+      data-field="{{item.id}}"
+      disabled="{{isViewMode}}"
+    >
+      <view class="picker-btn">
+        {{formData[item.id] || '请选择'}}
+      </view>
+    </picker>
+  </view>
+</block>
+
+<!-- ============ checkbox ============ -->
+<block wx:if="{{item.fieldType === 'checkbox'}}">
+  <view class="fi-control checkbox-row">
+    <checkbox-group bindchange="onFieldChange" data-field="{{item.id}}">
+      <label
+        wx:for="{{(item.options || item.checkboxOptions || '').split('|')}}"
+        wx:key="*this"
+        class="checkbox-label"
+      >
+        <checkbox value="{{item}}" disabled="{{isViewMode}}" />
+        <text>{{item}}</text>
+      </label>
+    </checkbox-group>
+  </view>
+</block>
+
+<!-- ============ radio ============ -->
+<block wx:if="{{item.fieldType === 'radio'}}">
+  <view class="fi-control">
+    <radio-group bindchange="onFieldChange" data-field="{{item.id}}">
+      <label
+        wx:for="{{(item.options || item.radioOptions || '').split('|')}}"
+        wx:key="*this"
+        class="radio-label"
+      >
+        <radio value="{{item}}" disabled="{{isViewMode}}" />
+        <text>{{item}}</text>
+      </label>
+    </radio-group>
+  </view>
+</block>
+
+<!-- ============ photo / ai_recognition ============ -->
+<block wx:if="{{item.fieldType === 'photo' || item.fieldType === 'ai_recognition'}}">
+  <view class="fi-control">
+    <view class="photo-wrap">
+      <!-- 已上传图片预览 -->
+      <block wx:if="{{formData[item.id] && !isViewMode}}">
+        <image
+          wx:if="{{formData[item.id].startsWith('http') || formData[item.id].startsWith('/')}}"
+          src="{{formData[item.id]}}"
+          class="photo-preview"
+          mode="aspectFill"
+        />
+        <view class="photo-id">{{formData[item.id]}}</view>
+      </block>
+      <!-- 上传按钮 -->
+      <view
+        wx:if="{{!isViewMode}}"
+        class="camera-btn"
+        bindtap="onCamera"
+        data-field="{{item.id}}"
+      >
+        <text>{{item.fieldType === 'ai_recognition' ? '🤖 AI拍照识别' : '📷 拍照'}}</text>
+      </view>
+      <view class="photo-tip" wx:if="{{item.fieldType === 'ai_recognition'}}">
+        拍照后系统将自动识别数据并填入
+      </view>
+    </view>
+  </view>
+</block>
+
+<!-- ============ file ============ -->
+<block wx:if="{{item.fieldType === 'file'}}">
+  <view class="fi-control">
+    <view class="file-wrap">
+      <view wx:if="{{formData[item.id]}}" class="file-name">
+        📎 {{formData[item.id]}}
+      </view>
+      <button
+        wx:if="{{!isViewMode}}"
+        class="btn btn-sm btn-outline"
+        bindtap="onFileChoose"
+        data-field="{{item.id}}"
+      >{{formData[item.id] ? '重新选择文件' : '选择文件'}}</button>
+    </view>
+  </view>
+</block>
+
+<!-- ============ sensor_data / computed（只读） ============ -->
+<block wx:if="{{item.fieldType === 'sensor_data' || item.fieldType === 'computed'}}">
+  <view class="fi-control">
+    <view class="readonly-val">
+      {{formData[item.id] || (item.sensorValue || item.computedValue || item.defaultValue || '—')}}
+    </view>
+  </view>
+</block>

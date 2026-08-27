@@ -1,0 +1,72 @@
+.page { min-height: 100vh; background: #F5F6FA; padding-bottom: 120rpx; }
+
+.stats-bar {
+  display: flex;
+  background: #fff;
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+.stat-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+}
+.stat-num { font-size: 36rpx; font-weight: 700; color: #333; }
+.stat-num.warn { color: #FF6600; }
+.stat-num.info { color: #1082FF; }
+.stat-num.primary { color: #09B44A; }
+.stat-num.muted { color: #888; }
+.stat-label { font-size: 22rpx; color: #888; }
+.stat-item.active .stat-num { color: #1082FF; }
+
+.list-wrap { padding: 24rpx; }
+.card { background: #fff; border-radius: 12rpx; padding: 24rpx; margin-bottom: 20rpx; }
+.row { display: flex; align-items: flex-start; }
+.row-main { flex: 1; }
+.row-title { font-size: 30rpx; font-weight: 600; color: #333; margin-bottom: 10rpx; }
+.row-sub { display: flex; align-items: center; margin-bottom: 10rpx; }
+.row-desc { font-size: 26rpx; color: #666; margin-bottom: 8rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-time { font-size: 24rpx; color: #999; }
+
+.risk-badge {
+  display: inline-block;
+  padding: 2rpx 12rpx;
+  border-radius: 4rpx;
+  font-size: 24rpx;
+}
+.risk-critical { background: #FFF1F0; color: #CF1322; }
+.risk-major    { background: #FFF7E6; color: #D46B08; }
+.risk-general  { background: #FFFBE6; color: #7CB305; }
+.risk-low      { background: #F6FFED; color: #389E0D; }
+
+.tag { display: inline-block; padding: 2rpx 12rpx; border-radius: 4rpx; font-size: 24rpx; }
+.tag-warn    { background: #FFF7E6; color: #FF6600; }
+.tag-info    { background: #E6F7FF; color: #1082FF; }
+.tag-primary { background: #F6FFED; color: #09B44A; }
+.tag-gray    { background: #F5F5F5; color: #888; }
+
+.ml10 { margin-left: 10rpx; }
+.muted { color: #999; font-size: 28rpx; }
+.center { text-align: center; padding: 60rpx 0; }
+
+.bottom-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: #fff;
+  padding: 20rpx 32rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  box-shadow: 0 -2rpx 12rpx rgba(0,0,0,.06);
+}
+.bottom-bar.safe { padding-bottom: calc(20rpx + env(safe-area-inset-bottom)); }
+.btn-primary {
+  width: 100%;
+  background: #1082FF;
+  color: #fff;
+  border-radius: 44rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+  padding: 24rpx 0;
+  border: none;
+}

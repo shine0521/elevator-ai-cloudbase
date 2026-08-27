@@ -1,8 +1,52 @@
-<view class="card">
-  <view bindtap="readAll" class="muted">全部已读</view>
-  <view wx:if="{{loading}}" class="muted">加载中...</view>
-  <view wx:for="{{list}}" wx:key="id" class="row" bindtap="read" data-id="{{item.id}}">
-    <view>{{item.title}}</view>
-    <view class="muted">{{item.content}}</view>
+<view class="page">
+  <!-- 顶部统计栏 -->
+  <view class="stats-bar card">
+    <view class="stats-total" bindtap="readAll">
+      <text class="num">{{stats.total}}</text>
+      <text class="lbl">未读消息</text>
+      <text class="mark-all">全部已读 ›</text>
+    </view>
+    <view class="stats-row">
+      <view class="stat-chip" bindtap="goCat" data-cat="approval" style="border-color:{{catColor('approval')}};color:{{catColor('approval')}}">
+        <text>{{catIcon('approval')}} 审批 {{stats.approval}}</text>
+      </view>
+      <view class="stat-chip" bindtap="goCat" data-cat="warning" style="border-color:{{catColor('warning')}};color:{{catColor('warning')}}">
+        <text>{{catIcon('warning')}} 预警 {{stats.warning}}</text>
+      </view>
+      <view class="stat-chip" bindtap="goCat" data-cat="workorder" style="border-color:{{catColor('workorder')}};color:{{catColor('workorder')}}">
+        <text>{{catIcon('workorder')}} 工单 {{stats.workorder}}</text>
+      </view>
+      <view class="stat-chip" bindtap="goCat" data-cat="emergency" style="border-color:{{catColor('emergency')}};color:{{catColor('emergency')}}">
+        <text>{{catIcon('emergency')}} 应急 {{stats.emergency}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 消息列表 -->
+  <view wx:if="{{loading}}" class="empty-state">
+    <text class="muted">加载中...</text>
+  </view>
+  <view wx:elif="{{list.length===0}}" class="empty-state">
+    <text class="muted">暂无消息</text>
+  </view>
+  <view wx:else class="msg-list">
+    <view
+      wx:for="{{list}}"
+      wx:key="id"
+      class="msg-item card {{item.is_read ? 'readed' : 'unread'}}"
+      bindtap="onTapMsg"
+      data-id="{{item.id}}"
+      data-item="{{item}}"
+    >
+      <view class="msg-icon" style="background:{{catColor(item.category)}}">
+        {{catIcon(item.category)}}
+      </view>
+      <view class="msg-body">
+        <view class="msg-title">{{item.title}}</view>
+        <view class="msg-content muted">{{item.content}}</view>
+        <view class="msg-time muted">{{item.create_time || item.created_at}}</view>
+      </view>
+      <view wx:if="{{!item.is_read}}" class="unread-dot"></view>
+    </view>
   </view>
 </view>

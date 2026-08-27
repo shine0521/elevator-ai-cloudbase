@@ -1,0 +1,102 @@
+<view class="page">
+  <!-- 加载态 -->
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+
+  <!-- 审批单信息 -->
+  <view wx:elif="{{approval}}" class="approval-wrap">
+
+    <!-- 基本信息卡 -->
+    <view class="card info-card">
+      <view class="biz-type-tag">{{approval.biz_type === 'daily' || approval.biz_type === 'inspection' ? '日管控检查' : approval.biz_type === 'weekly' ? '周排查' : approval.biz_type === 'hazard' ? '隐患排查' : approval.biz_type === 'emergency' ? '应急事件' : '审批'}}</view>
+      <view class="info-title">{{approval.biz_title || approval.title || '审批单'}}</view>
+      <view class="info-row muted">
+        <text wx:if="{{approval.applicant_name || approval.applicant}}">申请人：{{approval.applicant_name || approval.applicant}}</text>
+        <text wx:if="{{approval.create_time || approval.created_at}}"> | {{approval.create_time || approval.created_at}}</text>
+      </view>
+      <view class="info-row">
+        <text class="status-badge {{approval.current_node_status==='PENDING'?'pending':'done'}}" style="background:{{approval.current_node_status==='PENDING'?'#FF8C00':'#52C41A'}};color:#fff">
+          {{approval.current_node_status==='PENDING'?'待审批':'已完结'}}
+        </text>
+      </view>
+    </view>
+
+    <!-- 审批节点时间线 -->
+    <view class="section">
+      <view class="section-title">审批节点</view>
+      <view class="timeline">
+        <view
+          wx:for="{{approval.nodes || approval.node_list || []}}"
+          wx:key="node_seq"
+          class="timeline-item"
+        >
+          <view class="tl-left">
+            <view class="tl-icon" style="background:{{nodeColor(item.status)}};color:#fff">
+              {{nodeIcon(item.status)}}
+            </view>
+            <view wx:if="{{index < (approval.nodes||approval.node_list||[]).length-1}}" class="tl-line"></view>
+          </view>
+          <view class="tl-right">
+            <view class="tl-name {{item.status==='PENDING'?'current-node':''}}">
+              {{item.node_name || '节点' + item.node_seq}}
+            </view>
+            <view wx:if="{{item.approver_email || item.approver}}" class="tl-sub muted">
+              审批人：{{item.approver_email || item.approver}}
+            </view>
+            <view wx:if="{{item.decided_at || item.update_time}}" class="tl-sub muted">
+              {{item.decided_at || item.update_time}}
+            </view>
+            <view wx:if="{{item.comment}}" class="tl-comment muted">
+              意见：{{item.comment}}
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 审批操作区（仅当前节点且 PENDING 时显示） -->
+    <view wx:if="{{canApprove()}}" class="card action-panel">
+      <view class="section-title">审批意见</view>
+
+      <!-- 意见输入 -->
+      <view class="form-item">
+        <text class="form-label">审批意见</text>
+        <textarea
+          class="form-textarea"
+          placeholder="请输入审批意见（驳回时必填≥10字）"
+          value="{{comment}}"
+          bindinput="bindComment"
+        />
+      </view>
+
+      <!-- AI 对比摘要（可选） -->
+      <view class="form-item">
+        <text class="form-label">AI 对比摘要（可选）</text>
+        <textarea
+          class="form-textarea"
+          placeholder="AI 比对结果摘要"
+          value="{{aiComparisonSummary}}"
+          bindinput="bindSummary"
+        />
+      </view>
+      <view wx:if="{{aiComparisonSummary}}" class="form-item">
+        <text class="form-label">AI 置信度</text>
+        <slider min="0" max="100" value="{{aiConfidence * 100}}" bindchange="bindConfidence" show-value />
+      </view>
+
+      <!-- 转审区 -->
+      <view wx:if="{{showForward}}" class="form-item">
+        <text class="form-label">转审至（邮箱）</text>
+        <input class="form-input" type="text" placeholder="被转审人邮箱" value="{{forwardEmail}}" bindinput="bindForwardEmail" />
+      </view>
+
+      <!-- 操作按钮 -->
+      <view class="action-btns">
+        <button class="btn-approve" bindtap="doApprove" loading="{{submitting}}">✅ 批准</button>
+        <button class="btn-reject" bindtap="doReject" loading="{{submitting}}">❌ 驳回</button>
+        <button class="btn-forward" bindtap="showForward?doForward:toggleForward" loading="{{submitting}}">
+          {{showForward?'确认转审':'↪️ 转审'}}
+        </button>
+      </view>
+    </view>
+  </view>
+</view>

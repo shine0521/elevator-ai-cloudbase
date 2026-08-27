@@ -1,0 +1,25 @@
+<view class="page">
+  <view class="card scan-hero" bindtap="doScan">
+    <view class="scan-icon">📷</view>
+    <view class="scan-btn-text">扫码查询设备</view>
+    <view class="scan-hint muted">点击按钮或长按扫一扫</view>
+  </view>
+
+  <!-- 扫码历史 -->
+  <view wx:if="{{history.length>0}}" class="section">
+    <view class="section-header">
+      <text class="section-title">最近扫码</text>
+      <text class="muted" bindtap="clearHistory">清除</text>
+    </view>
+    <view
+      wx:for="{{history}}"
+      wx:key="id"
+      class="list-item card"
+      bindtap="goHistory"
+      data-id="{{item.id}}"
+    >
+      <view class="item-title">{{item.device_name || item.name || '设备' + item.id}}</view>
+      <view class="item-sub muted">{{item.location || item.address || ''}} {{item.status ? '| ' + item.status : ''}}</view>
+    </view>
+  </view>
+</view>

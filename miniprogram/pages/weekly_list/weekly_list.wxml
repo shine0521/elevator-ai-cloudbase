@@ -1,0 +1,13 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+  <view wx:elif="{{list.length===0}}" class="empty-state"><text class="muted">暂无周排查记录</text></view>
+  <view wx:else class="list-wrap">
+    <view wx:for="{{list}}" wx:key="id" class="list-item card" bindtap="goForm" data-id="{{item.id}}">
+      <view class="item-main">
+        <view class="item-title">{{item.device_name || item.inspection_no || '记录' + item.id}}</view>
+        <view class="status-badge" style="background:{{item.status==='PENDING'?'#FF8C00':'#52C41A'}};color:#fff">{{item.status || '进行中'}}</view>
+      </view>
+      <view class="item-sub muted">{{item.inspection_date || item.create_time || ''}}</view>
+    </view>
+  </view>
+</view>

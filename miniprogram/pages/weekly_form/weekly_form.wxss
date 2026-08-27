@@ -1,0 +1,104 @@
+.page { min-height: 100vh; background: #F5F6FA; padding-bottom: 120rpx; }
+.muted { color: #888; font-size: 26rpx; }
+.center { text-align: center; padding: 80rpx 0; }
+.card { background: #fff; margin: 32rpx; border-radius: 12rpx; padding: 32rpx; }
+.card-title { font-size: 32rpx; font-weight: 600; color: #333; margin-bottom: 24rpx; }
+
+/* 顶部进度 */
+.progress-header {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #fff; padding: 24rpx 32rpx 16rpx;
+}
+.ph-title { font-size: 30rpx; font-weight: 600; color: #333; display: block; }
+.ph-date { font-size: 24rpx; margin-top: 4rpx; display: block; }
+.progress-right { text-align: right; }
+.ph-count { font-size: 40rpx; font-weight: 700; color: #1082FF; }
+.ph-total { font-size: 26rpx; }
+.progress-bar-wrap { background: #fff; padding: 0 32rpx 16rpx; }
+.progress-bar { height: 8rpx; background: #E5E5E5; border-radius: 4rpx; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #1082FF, #09B44A); border-radius: 4rpx; transition: width .4s; }
+
+/* 检查项快捷栏 */
+.item-tabs { white-space: nowrap; background: #fff; padding: 0 24rpx 16rpx; }
+.item-tab {
+  display: inline-block; width: 56rpx; height: 56rpx; line-height: 56rpx;
+  text-align: center; font-size: 24rpx; border-radius: 50%;
+  background: #F5F6FA; color: #888; margin-right: 12rpx;
+}
+.item-tab.active { background: #1082FF; color: #fff; font-weight: 600; }
+.item-tab.done { background: #E6F7FF; color: #1082FF; }
+
+/* 检查卡片 */
+.check-card { background: #fff; margin: 24rpx 32rpx; border-radius: 16rpx; padding: 32rpx; }
+.check-header { margin-bottom: 28rpx; }
+.check-num { font-size: 24rpx; color: #888; display: block; margin-bottom: 8rpx; }
+.check-label { font-size: 34rpx; font-weight: 600; color: #333; }
+.req-mark { color: #CF1322; margin-left: 4rpx; }
+.unit-mark { font-size: 26rpx; color: #888; margin-left: 12rpx; }
+
+/* 表单 */
+.form-group { margin-bottom: 24rpx; }
+.form-label { font-size: 26rpx; color: #888; margin-bottom: 10rpx; }
+.input {
+  background: #fff; border: 1rpx solid #E5E5E5; border-radius: 12rpx;
+  padding: 20rpx 24rpx; font-size: 30rpx; width: 100%; box-sizing: border-box;
+}
+.textarea {
+  background: #fff; border: 1rpx solid #E5E5E5; border-radius: 12rpx;
+  padding: 20rpx 24rpx; font-size: 28rpx; width: 100%; box-sizing: border-box; min-height: 140rpx;
+}
+.picker-show {
+  background: #fff; border: 1rpx solid #E5E5E5; border-radius: 12rpx;
+  padding: 20rpx 24rpx; font-size: 30rpx; color: #333;
+}
+.date-range {
+  background: #F5F6FA; border-radius: 12rpx;
+  padding: 20rpx 24rpx; font-size: 28rpx; color: #333;
+}
+
+/* Radio 选项 */
+.options-grid { display: flex; flex-wrap: wrap; gap: 16rpx; margin-bottom: 24rpx; }
+.opt-btn {
+  padding: 16rpx 32rpx; border-radius: 12rpx;
+  border: 2rpx solid #E5E5E5; font-size: 30rpx; color: #666;
+  background: #fff;
+}
+.opt-btn.selected { border-color: #1082FF; background: #E6F7FF; color: #1082FF; font-weight: 600; }
+.check-label-row { display: flex; align-items: center; gap: 12rpx; padding: 8rpx 0; font-size: 28rpx; }
+
+/* 照片 */
+.photo-row { display: flex; flex-wrap: wrap; gap: 16rpx; }
+.photo-wrap { position: relative; }
+.photo-thumb { width: 160rpx; height: 160rpx; border-radius: 12rpx; }
+.photo-del {
+  position: absolute; top: -8rpx; right: -8rpx;
+  width: 36rpx; height: 36rpx; border-radius: 50%;
+  background: rgba(0,0,0,.5); color: #fff; font-size: 22rpx;
+  display: flex; align-items: center; justify-content: center;
+}
+.photo-add {
+  width: 160rpx; height: 160rpx; border-radius: 12rpx;
+  border: 2rpx dashed #ccc; color: #ccc; font-size: 60rpx;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* 导航按钮 */
+.item-nav { display: flex; gap: 16rpx; margin-top: 24rpx; }
+.btn-nav {
+  flex: 1; background: #fff; color: #1082FF; border-radius: 44rpx;
+  font-size: 28rpx; padding: 20rpx 0; border: 1rpx solid #1082FF;
+}
+.btn-nav.btn-next { background: #1082FF; color: #fff; border-color: #1082FF; }
+
+/* 最终提交 */
+.submit-section { margin: 32rpx; }
+.progress-tip { text-align: center; margin-bottom: 16rpx; }
+.btn-final {
+  width: 100%; background: #09B44A; color: #fff; border-radius: 44rpx;
+  font-size: 32rpx; font-weight: 600; padding: 28rpx 0; border: none;
+}
+
+.btn-primary {
+  width: 100%; background: #1082FF; color: #fff; border-radius: 44rpx;
+  font-size: 32rpx; font-weight: 600; padding: 24rpx 0; border: none; margin-top: 16rpx;
+}

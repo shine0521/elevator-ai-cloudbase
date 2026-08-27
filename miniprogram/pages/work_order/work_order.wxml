@@ -1,0 +1,13 @@
+<view class="page">
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+  <view wx:elif="{{list.length===0}}" class="empty-state"><text class="muted">暂无工单</text></view>
+  <view wx:else class="list-wrap">
+    <view wx:for="{{list}}" wx:key="id" class="list-item card" bindtap="goDetail" data-id="{{item.id}}">
+      <view class="item-main">
+        <view class="item-title">{{item.title || item.order_no || '工单' + item.id}}</view>
+        <view class="status-badge" style="background:{{item.status==='OPEN'?'#FAAD14':item.status==='CLOSED'?'#52C41A':'#1082FF'}};color:#fff">{{item.status || '进行中'}}</view>
+      </view>
+      <view class="item-sub muted">{{item.create_time || item.created_at || ''}} {{item.assignee_name ? '| 负责人：' + item.assignee_name : ''}}</view>
+    </view>
+  </view>
+</view>

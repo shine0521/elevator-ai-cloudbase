@@ -1,0 +1,159 @@
+<view class="page">
+
+  <!-- 加载状态 -->
+  <view wx:if="{{loading}}" class="muted center">加载中...</view>
+
+  <!-- ══ 新建模式：元信息表单 ══ -->
+  <block wx:elif="{{isNew}}">
+    <view class="card">
+      <view class="card-title">周排查信息</view>
+      <view class="form-group">
+        <view class="form-label">排查周期</view>
+        <view class="date-range">
+          <text>{{startDate}} ~ {{endDate}}</text>
+        </view>
+      </view>
+      <view class="form-group">
+        <view class="form-label">检查人</view>
+        <input class="input" placeholder="请输入检查人姓名" value="{{inspectorName}}" bindinput="e=>setData({inspectorName:e.detail.value})"/>
+      </view>
+      <view class="form-group">
+        <view class="form-label">备注说明</view>
+        <textarea class="textarea" placeholder="可选…" value="{{note||''}}" bindinput="e=>setData({note:e.detail.value})"/>
+      </view>
+      <button class="btn-primary" bindtap="onCreate" disabled="{{submiting}}">
+        {{submiting?'创建中…':'创建并开始排查'}}
+      </button>
+    </view>
+  </block>
+
+  <!-- ══ 执行模式 ══ -->
+  <block wx:else>
+
+    <!-- 顶部进度 -->
+    <view class="progress-header">
+      <view class="progress-info">
+        <text class="ph-title">{{weeklyNo||'周排查'}}</text>
+        <text class="ph-date muted">{{startDate}} ~ {{endDate}}</text>
+      </view>
+      <view class="progress-right">
+        <text class="ph-count">{{completedCount}}</text>
+        <text class="ph-total muted">/ {{totalCount}} 项</text>
+      </view>
+    </view>
+    <view class="progress-bar-wrap">
+      <view class="progress-bar">
+        <view class="progress-fill" style="width:{{totalCount>0?(completedCount/totalCount*100).toFixed(1):0}}%"></view>
+      </view>
+    </view>
+
+    <!-- 检查项快捷跳转 -->
+    <scroll-view scroll-x class="item-tabs">
+      <view wx:for="{{items}}" wx:key="id"
+        class="item-tab {{currentIndex===index?'active':''}} {{item.value!==null&&item.value!==undefined&&item.value!==''?'done':''}}"
+        data-idx="{{index}}" bindtap="goItem">
+        {{index+1}}
+      </view>
+    </scroll-view>
+
+    <!-- 当前检查项 -->
+    <view wx:if="{{items[currentIndex]}}" class="check-card">
+      <view class="check-header">
+        <text class="check-num">第 {{currentIndex+1}} / {{totalCount}} 项</text>
+        <text class="check-label">{{items[currentIndex].label}}</text>
+        <text wx:if="{{items[currentIndex].required}}" class="req-mark">*</text>
+        <text wx:if="{{items[currentIndex].unit}}" class="unit-mark">{{items[currentIndex].unit}}</text>
+      </view>
+
+      <!-- Radio -->
+      <block wx:if="{{isRadio(items[currentIndex].type)}}">
+        <view class="options-grid">
+          <view wx:for="{{items[currentIndex].options}}" wx:key="index"
+            class="opt-btn {{currentValue===item?'selected':''}}"
+            data-val="{{item}}" bindtap="e=>setData({currentValue:item})">
+            {{item}}
+          </view>
+        </view>
+      </block>
+
+      <!-- Select / Picker -->
+      <block wx:elif="{{isSelect(items[currentIndex].type)}}">
+        <picker value="{{currentValueIndex||0}}" range="{{items[currentIndex].options}}" bindchange="onValueChange">
+          <view class="picker-show">{{currentValue||'请选择'}}</view>
+        </picker>
+      </block>
+
+      <!-- Checkbox -->
+      <block wx:elif="{{isCheckbox(items[currentIndex].type)}}">
+        <checkbox-group bindchange="onValueChange">
+          <label wx:for="{{items[currentIndex].options}}" wx:key="index" class="check-label-row">
+            <checkbox value="{{item}}" checked="{{currentValue&&currentValue.includes(item)}}"/>
+            <text>{{item}}</text>
+          </label>
+        </checkbox-group>
+      </block>
+
+      <!-- Date -->
+      <block wx:elif="{{isDate(items[currentIndex].type)}}">
+        <picker mode="date" value="{{currentValue||startDate}}" bindchange="onValueChange">
+          <view class="picker-show">{{currentValue||'选择日期'}}</view>
+        </picker>
+      </block>
+
+      <!-- Photo -->
+      <block wx:elif="{{isPhoto(items[currentIndex].type)}}">
+        <view class="photo-row">
+          <view wx:for="{{currentPhotos}}" wx:key="index" class="photo-wrap">
+            <image src="{{item}}" class="photo-thumb" mode="aspectFill"/>
+            <text class="photo-del" data-idx="{{index}}" bindtap="onRemovePhoto">✕</text>
+          </view>
+          <view wx:if="{{currentPhotos.length<6}}" class="photo-add" bindtap="onTakePhoto">+</view>
+        </view>
+      </block>
+
+      <!-- Textarea -->
+      <block wx:elif="{{isTextarea(items[currentIndex].type)}}">
+        <textarea class="textarea" placeholder="请输入…" value="{{currentValue||''}}" bindinput="onValueChange" maxlength="500"/>
+      </block>
+
+      <!-- Default: input / number -->
+      <block wx:else>
+        <input class="input" placeholder="请输入…" value="{{currentValue||''}}" bindinput="onValueChange"/>
+      </block>
+
+      <!-- 备注 -->
+      <view class="form-group" style="margin-top:20rpx">
+        <view class="form-label">备注说明</view>
+        <textarea class="textarea" placeholder="可选…" value="{{currentNote}}" bindinput="onNoteInput" maxlength="200"/>
+      </view>
+
+      <!-- 照片（通用） -->
+      <view class="form-group">
+        <view class="form-label">照片证据（可选）</view>
+        <view class="photo-row">
+          <view wx:for="{{currentPhotos}}" wx:key="index" class="photo-wrap">
+            <image src="{{item}}" class="photo-thumb" mode="aspectFill"/>
+            <text class="photo-del" data-idx="{{index}}" bindtap="onRemovePhoto">✕</text>
+          </view>
+          <view wx:if="{{currentPhotos.length<6}}" class="photo-add" bindtap="onTakePhoto">+</view>
+        </view>
+      </view>
+
+      <!-- 导航按钮 -->
+      <view class="item-nav">
+        <button class="btn-nav" bindtap="prevItem" wx:if="{{currentIndex>0}}">← 上一项</button>
+        <button class="btn-nav btn-next" bindtap="onSubmitItem">保存并下一项</button>
+        <button class="btn-nav" bindtap="nextItem" wx:if="{{currentIndex<items.length-1}}">下一项 →</button>
+      </view>
+    </view>
+
+    <!-- 全部完成 / 最终提交 -->
+    <view class="submit-section">
+      <view class="progress-tip muted">已完成 {{completedCount}} / {{totalCount}} 项</view>
+      <button class="btn-final" bindtap="onFinalSubmit" disabled="{{submiting}}">
+        {{submiting?'提交中…':'全部完成，提交周排查'}}
+      </button>
+    </view>
+
+  </block>
+</view>

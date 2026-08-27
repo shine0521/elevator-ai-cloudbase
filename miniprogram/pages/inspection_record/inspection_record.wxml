@@ -1,0 +1,60 @@
+<view class="page">
+  <!-- 筛选区 -->
+  <view class="filter-bar card">
+    <!-- 类型筛选 -->
+    <view class="filter-row">
+      <text class="filter-label">记录类型</text>
+      <picker mode="selector" range="{{['全部','日管控','周排查','隐患']}}" bindchange="bindTypeChange">
+        <view class="picker-val">{{['全部','日管控','周排查','隐患'][typeIndex]}} ▼</view>
+      </picker>
+    </view>
+    <!-- 日期范围 -->
+    <view class="filter-row">
+      <text class="filter-label">开始日期</text>
+      <picker mode="date" value="{{startDate}}" bindchange="bindStartDate">
+        <view class="picker-val">{{startDate}} ▼</view>
+      </picker>
+    </view>
+    <view class="filter-row">
+      <text class="filter-label">结束日期</text>
+      <picker mode="date" value="{{endDate}}" bindchange="bindEndDate">
+        <view class="picker-val">{{endDate}} ▼</view>
+      </picker>
+    </view>
+  </view>
+
+  <!-- 加载态 -->
+  <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+  <view wx:elif="{{list.length===0}}" class="empty-state"><text class="muted">暂无记录</text></view>
+
+  <!-- 记录列表 -->
+  <view wx:else class="list-wrap">
+    <view
+      wx:for="{{list}}"
+      wx:key="id"
+      class="list-item card"
+      bindtap="goDetail"
+      data-item="{{item}}"
+    >
+      <view class="item-main">
+        <view class="source-tag" style="background:{{sourceColor(item._source)}};color:#fff">
+          {{sourceLabel(item._source)}}
+        </view>
+        <view class="item-title">{{rowLabel(item)}}</view>
+        <view class="status-badge" style="background:{{statusColor(item.status)}};color:#fff">
+          {{item.status || item.result || '进行中'}}
+        </view>
+      </view>
+      <view class="item-sub muted">
+        <text wx:if="{{item.inspection_date}}">{{item.inspection_date}}</text>
+        <text wx:elif="{{item.create_time}}">{{item.create_time}}</text>
+        <text wx:if="{{item.inspector_name}}"> | {{item.inspector_name}}</text>
+        <text wx:if="{{item.location}}"> | {{item.location}}</text>
+      </view>
+    </view>
+
+    <!-- 加载更多 -->
+    <view wx:if="{{loadingMore}}" class="loading-more"><text class="muted">加载中...</text></view>
+    <view wx:elif="{{!hasMore && list.length>0}}" class="loading-more"><text class="muted">— 没有更多了 —</text></view>
+  </view>
+</view>

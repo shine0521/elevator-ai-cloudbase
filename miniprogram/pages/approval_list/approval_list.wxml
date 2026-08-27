@@ -1,0 +1,66 @@
+<view class="page">
+  <!-- Tab 切换 -->
+  <view class="tab-bar card">
+    <view class="tab {{tab==='pending'?'active':''}}" bindtap="switchTab" data-tab="pending">
+      待审批 <text wx:if="{{pendingList.length>0}}" class="badge-tiny">{{pendingList.length}}</text>
+    </view>
+    <view class="tab {{tab==='done'?'active':''}}" bindtap="switchTab" data-tab="done">已审批</view>
+  </view>
+
+  <!-- 待审批列表 -->
+  <view wx:if="{{tab==='pending'}}">
+    <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+    <view wx:elif="{{pendingList.length===0}}" class="empty-state"><text class="muted">暂无待审批项</text></view>
+    <view wx:else class="list-wrap">
+      <view
+        wx:for="{{pendingList}}"
+        wx:key="id"
+        class="list-item card"
+        bindtap="goDetail"
+        data-id="{{item.id}}"
+      >
+        <view class="item-main">
+          <view class="item-title">{{item.biz_title || item.title || bizLabel(item.biz_type)}}</view>
+          <view class="status-badge" style="background:{{statusColor(item.status)}};color:#fff">待审批</view>
+        </view>
+        <view class="item-sub muted">
+          <text>{{bizLabel(item.biz_type)}}</text>
+          <text wx:if="{{item.current_node}}"> | {{item.current_node}}</text>
+          <text wx:if="{{item.applicant_name || item.applicant}}"> | 申请人：{{item.applicant_name || item.applicant}}</text>
+        </view>
+        <view class="item-sub muted">
+          <text wx:if="{{item.create_time || item.created_at}}">{{item.create_time || item.created_at}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 已审批列表 -->
+  <view wx:if="{{tab==='done'}}">
+    <view wx:if="{{loading}}" class="empty-state"><text class="muted">加载中...</text></view>
+    <view wx:elif="{{doneList.length===0}}" class="empty-state"><text class="muted">暂无已审批记录</text></view>
+    <view wx:else class="list-wrap">
+      <view
+        wx:for="{{doneList}}"
+        wx:key="id"
+        class="list-item card"
+        bindtap="goDetail"
+        data-id="{{item.id}}"
+      >
+        <view class="item-main">
+          <view class="item-title">{{item.biz_title || item.title || bizLabel(item.biz_type)}}</view>
+          <view class="status-badge" style="background:{{statusColor(item.status)}};color:#fff">
+            {{item.status==='APPROVED'?'已批准':'已驳回'}}
+          </view>
+        </view>
+        <view class="item-sub muted">
+          <text>{{bizLabel(item.biz_type)}}</text>
+          <text wx:if="{{item.decided_by || item.approver}}"> | 审批人：{{item.decided_by || item.approver}}</text>
+        </view>
+        <view class="item-sub muted">
+          <text wx:if="{{item.decided_at || item.update_time}}">{{item.decided_at || item.update_time}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

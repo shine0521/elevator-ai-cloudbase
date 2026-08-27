@@ -4,7 +4,21 @@
     "pages/workbench/workbench",
     "pages/check/check",
     "pages/message/message",
-    "pages/profile/profile"
+    "pages/profile/profile",
+    "pages/daily/daily",
+    "pages/daily_form/daily_form",
+    "pages/hazard_list/hazard_list",
+    "pages/hazard_form/hazard_form",
+    "pages/work_order/work_order",
+    "pages/work_order_detail/work_order_detail",
+    "pages/weekly_list/weekly_list",
+    "pages/weekly_form/weekly_form",
+    "pages/device_scan/device_scan",
+    "pages/device_detail/device_detail",
+    "pages/emergency_report/emergency_report",
+    "pages/approval_list/approval_list",
+    "pages/approval_detail/approval_detail",
+    "pages/inspection_record/inspection_record"
   ],
   "window": {
     "navigationBarTitleText": "特安助",
@@ -18,10 +32,10 @@
     "backgroundColor": "#FFFFFF",
     "borderStyle": "black",
     "list": [
-      { "pagePath": "pages/workbench/workbench", "text": "工作台" },
-      { "pagePath": "pages/check/check", "text": "检查" },
-      { "pagePath": "pages/message/message", "text": "消息" },
-      { "pagePath": "pages/profile/profile", "text": "我的" }
+      { "pagePath": "pages/workbench/workbench", "text": "工作台", "iconPath": "pages/workbench/icon.png", "selectedIconPath": "pages/workbench/icon-active.png" },
+      { "pagePath": "pages/check/check", "text": "检查", "iconPath": "pages/check/icon.png", "selectedIconPath": "pages/check/icon-active.png" },
+      { "pagePath": "pages/message/message", "text": "消息", "iconPath": "pages/message/icon.png", "selectedIconPath": "pages/message/icon-active.png" },
+      { "pagePath": "pages/profile/profile", "text": "我的", "iconPath": "pages/profile/icon.png", "selectedIconPath": "pages/profile/icon-active.png" }
     ]
   },
   "style": "v2",
