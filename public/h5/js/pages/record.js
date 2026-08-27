@@ -1,277 +1,213 @@
-// pages/record.js — 检查记录查询（综合：日管控 / 周排查 / 隐患 组合）
-// 顶部筛选（类型 + 时间范围 + 状态）→ 组合查询三端 API → 按类型分组展示
-// 所有逻辑收敛到 computed / methods，模板中不含 && || > < 等运算符
-(function () {
-  window.Pages = window.Pages || {};
-  window.Pages.record = {
-    template: [
-      '<div class="record-page">',
+// record.js — 检查记录综合查询
+// 依据 H5_REWRITE_CONTRACT.md 重写：
+//   合并 日管控(api.getInspections) 与 周排查(api.getWeekly)，按日期降序；
+//   支持 设备名 / 记录类型 / 时间范围 筛选；日管控点进 /daily_detail，周排查暂提示。
+// 铁律：v-model 仅用于 input/select；模板内无裸 && || < >；禁止 SVG；根节点 .page
+window.Pages = window.Pages || {};
 
-        // === 筛选卡片 ===
-        '<div class="card">',
-          '<div class="form-item">',
-            '<div class="form-label">检查类型</div>',
-            '<select class="fi-input" v-model="type">',
-              '<option v-for="o in typeOptions" v-bind:key="o.value" v-bind:value="o.value">{{o.label}}</option>',
-            '</select>',
-          '</div>',
+window.Pages.record = {
+  name: 'record',
+  props: ['query'],
 
-          '<div class="form-item">',
-            '<div class="form-label">时间范围</div>',
-            '<div class="flex gap8">',
-              '<input class="fi-input" type="date" v-model="startDate" />',
-              '<span class="muted" style="align-self:center;">至</span>',
-              '<input class="fi-input" type="date" v-model="endDate" />',
-            '</div>',
-          '</div>',
+  data: function () {
+    return {
+      loading: false,
+      deviceName: '',
+      type: 'all',          // all | daily | weekly
+      timeRange: 'all',     // all | week | month | quarter
+      list: []
+    };
+  },
 
-          '<div class="form-item">',
-            '<div class="form-label">状态</div>',
-            '<select class="fi-input" v-model="status">',
-              '<option v-for="o in statusOptions" v-bind:key="o.value" v-bind:value="o.value">{{o.label}}</option>',
-            '</select>',
-          '</div>',
+  computed: {
+    // 空态（不放裸 === 到模板）
+    showEmpty: function () { return !this.loading && this.list.length === 0; }
+  },
 
-          '<button class="btn-primary" v-on:click="doQuery">查询</button>',
-        '</div>',
+  methods: {
+    go: function (p) { utils.go(p); },
 
-        // === 加载态 ===
-        '<div v-if="loading" class="loading-row"><div class="spinner"></div>查询中...</div>',
+    // 主查询：并发拉取日管控 + 周排查 → 合并 → 筛选 → 按日期降序
+    load: function () {
+      var self = this;
+      self.loading = true;
 
-        // === 空状态 ===
-        '<div v-if="showEmpty" class="empty-state">',
-          '<div class="empty-icon">🔍</div>',
-          '<div class="empty-title">未找到记录</div>',
-          '<div class="empty-sub">调整筛选条件后重试</div>',
-        '</div>',
-
-        // === 按类型分组结果 ===
-        '<div v-if="showGroups">',
-          '<div v-for="g in groups" v-bind:key="g.type" class="record-group">',
-            '<div class="record-group-title" v-bind:style="groupTitleStyle(g)">{{g.label}}（{{g.items.length}}）</div>',
-            '<div class="list">',
-              '<div v-for="item in g.items" v-bind:key="itemKey(item)" class="list-item" v-on:click="goDetail(item)">',
-                '<div class="li-body">',
-                  '<div class="li-title">{{rowTitle(item)}}</div>',
-                  '<div class="li-sub">{{rowSub(item)}}</div>',
-                '</div>',
-                '<div class="li-extra">',
-                  '<span v-if="isHazardItem(item)" class="badge" v-bind:style="riskBadgeStyle(item)">{{riskLabel(item)}}</span>',
-                  '<span class="badge" v-bind:class="statusClass(item.status)">{{statusLabel(item.status)}}</span>',
-                '</div>',
-                '<div class="li-arrow">›</div>',
-              '</div>',
-            '</div>',
-          '</div>',
-        '</div>',
-
-      '</div>'
-    ].join(''),
-
-    data: function () {
-      return {
-        type: 'all',       // all | daily | weekly | hazard
-        startDate: '',
-        endDate: '',
-        status: 'all',
-        loading: true,
-        list: [],
-        typeOptions: [
-          { value: 'all', label: '全部' },
-          { value: 'daily', label: '日管控' },
-          { value: 'weekly', label: '周排查' },
-          { value: 'hazard', label: '隐患' }
-        ],
-        statusOptions: [
-          { value: 'all', label: '全部' },
-          { value: 'pending', label: '待检' },
-          { value: 'ongoing', label: '进行中' },
-          { value: 'submitted', label: '已提交' },
-          { value: 'reviewed', label: '已审核' },
-          { value: 'rectifying', label: '整改中' },
-          { value: 'verifying', label: '待验收' },
-          { value: 'closed', label: '已关闭' }
-        ]
-      };
-    },
-
-    computed: {
-      // 按类型分组成可渲染结构
-      groups: function () {
-        var self = this;
-        var order = ['daily', 'weekly', 'hazard'];
-        return order.map(function (t) {
-          return {
-            type: t,
-            label: self.typeLabel(t),
-            color: self.typeColor(t),
-            items: self.list.filter(function (i) { return i._type === t; })
-          };
-        }).filter(function (g) { return g.items.length > 0; });
-      },
-      showGroups: function () {
-        return this.groups.length > 0;
-      },
-      showEmpty: function () {
-        return !this.loading && this.groups.length === 0;
+      var calls = [];
+      if (self.type === 'all' || self.type === 'daily') {
+        calls.push(self.fetchInspections().catch(function () { return []; }));
       }
+      if (self.type === 'all' || self.type === 'weekly') {
+        calls.push(self.fetchWeekly().catch(function () { return []; }));
+      }
+
+      Promise.all(calls).then(function (res) {
+        var merged = [];
+        res.forEach(function (arr) { merged = merged.concat(arr); });
+        merged = self.applyFilter(merged);
+        merged.sort(function (a, b) {
+          return self.sortKey(b).localeCompare(self.sortKey(a));
+        });
+        self.list = merged;
+      }).catch(function () {
+        self.list = [];
+      }).finally(function () {
+        self.loading = false;
+      });
     },
 
-    mounted: function () {
-      this.load();
-      window.__ptrFn = this.load.bind(this);
+    fetchInspections: function () {
+      var self = this;
+      var p = { q: self.deviceName || undefined, page: 1, pageSize: 200 };
+      return api.getInspections(p).then(function (d) { return self.normalize(d, 'daily'); });
     },
 
-    beforeUnmount: function () {
-      window.__ptrFn = null;
+    fetchWeekly: function () {
+      var self = this;
+      var p = { q: self.deviceName || undefined, page: 1, pageSize: 200 };
+      return api.getWeekly(p).then(function (d) { return self.normalize(d, 'weekly'); });
     },
 
-    methods: {
-      // 查询按钮
-      doQuery: function () {
-        this.load();
-      },
-
-      // 组合查询：按所选类型调用对应 API，合并后做日期/状态筛选并排序
-      load: function () {
-        var self = this;
-        self.loading = true;
-
-        var calls = [];
-        if (self.type === 'all' || self.type === 'daily') calls.push(self.fetchType('daily'));
-        if (self.type === 'all' || self.type === 'weekly') calls.push(self.fetchType('weekly'));
-        if (self.type === 'all' || self.type === 'hazard') calls.push(self.fetchType('hazard'));
-
-        return Promise.all(calls)
-          .then(function (results) {
-            var merged = [];
-            results.forEach(function (arr) { merged = merged.concat(arr); });
-
-            merged = merged.filter(function (item) {
-              if (self.status !== 'all' && item.status !== self.status) return false;
-              var d = self.itemDate(item);
-              if (self.startDate && d && d < self.startDate) return false;
-              if (self.endDate && d && d > self.endDate) return false;
-              return true;
-            });
-
-            merged.sort(function (a, b) {
-              return self.itemDate(b).localeCompare(self.itemDate(a));
-            });
-
-            self.list = merged;
-          })
-          .catch(function () { utils.toast('查询失败'); })
-          .finally(function () { self.loading = false; });
-      },
-
-      fetchType: function (type) {
-        var path = type === 'daily' ? '/api/mobile/inspections'
-          : type === 'weekly' ? '/api/mobile/weekly'
-          : '/api/mobile/hazards';
-        return api.get(path, { page: 1, size: 200 })
-          .then(function (d) {
-            var arr = (d && d.data) || [];
-            return arr.map(function (it) {
-              var o = {};
-              for (var k in it) { if (Object.prototype.hasOwnProperty.call(it, k)) o[k] = it[k]; }
-              o._type = type;
-              return o;
-            });
-          });
-      },
-
-      // 归一化日期（yyyy-mm-dd），用于时间范围筛选与排序
-      itemDate: function (item) {
-        var raw = item.check_date || item.find_time || item.created_at || item.inspection_date || item.create_time || '';
-        return String(raw).substring(0, 10);
-      },
-
-      goDetail: function (item) {
-        var id = item.id;
-        if (item._type === 'daily') utils.go('/daily_detail?id=' + id);
-        else if (item._type === 'weekly') utils.go('/weekly_form?id=' + id);
-        else utils.go('/hazard_form?id=' + id + '&mode=view');
-      },
-
-      itemKey: function (item) {
-        return (item._type || 'x') + '_' + item.id;
-      },
-
-      isHazardItem: function (item) {
-        return item && item._type === 'hazard';
-      },
-
-      typeLabel: function (t) {
-        var m = { all: '全部', daily: '日管控', weekly: '周排查', hazard: '隐患排查' };
-        return m[t] || t;
-      },
-      typeColor: function (t) {
-        var m = { daily: '#1677ff', weekly: '#52c41a', hazard: '#fa8c16' };
-        return m[t] || '#999';
-      },
-      groupTitleStyle: function (g) {
+    // 归一化为统一结构（响应可能无 data 包裹：d.data || d || []）
+    normalize: function (res, type) {
+      var arr = (res && (res.data || res)) || [];
+      return arr.map(function (it) {
         return {
-          color: g.color,
-          borderLeft: '3px solid ' + g.color,
-          paddingLeft: '8px',
-          fontWeight: '600',
-          fontSize: '15px',
-          margin: '12px 0 6px'
+          _type: type,
+          id: it.id,
+          no: it.inspection_no || '',
+          device: it.device_name || '',
+          code: it.device_code || '',
+          week: it.week_no || '',
+          location: it.location || '',
+          inspector: it.inspector_name || '',
+          status: it.status || '',
+          date: type === 'daily' ? (it.check_date || '') : (it.created_at || '')
         };
-      },
+      });
+    },
 
-      rowTitle: function (item) {
-        if (item._type === 'hazard') return this.hazardTitle(item);
-        return item.device_name || item.inspection_no || ('记录 #' + item.id);
-      },
-      rowSub: function (item) {
-        var parts = [];
-        if (item._type === 'weekly') {
-          if (item.week_no) parts.push('第' + item.week_no + '周');
-          if (item.location) parts.push(item.location);
-          if (item.inspector_name) parts.push(item.inspector_name);
-        } else if (item._type === 'hazard') {
-          if (item.find_time) parts.push(utils.formatTime(item.find_time));
-          else if (item.created_at) parts.push(utils.formatTime(item.created_at));
-          if (item.location) parts.push(item.location);
-        } else {
-          if (item.check_date) parts.push(item.check_date);
-          if (item.location) parts.push(item.location);
-          if (item.inspector_name) parts.push(item.inspector_name);
+    // 设备名 + 时间范围过滤（逻辑均放 method，模板无裸运算符）
+    applyFilter: function (arr) {
+      var self = this;
+      var kw = (self.deviceName || '').trim().toLowerCase();
+      var cutoff = self.cutoffStr();
+      return arr.filter(function (it) {
+        if (kw) {
+          var hay = (it.device + ' ' + it.code + ' ' + it.no).toLowerCase();
+          if (hay.indexOf(kw) < 0) return false;
         }
-        return parts.join(' | ');
-      },
-      hazardTitle: function (item) {
-        var s = item.hazard_desc || item.hazard_type || item.device_name || ('隐患 #' + item.id);
-        if (s.length > 24) s = s.substring(0, 24) + '…';
-        return s;
-      },
+        if (self.timeRange !== 'all') {
+          var d = self.sortKey(it);
+          if (!d || d < cutoff) return false;
+        }
+        return true;
+      });
+    },
 
-      riskLabel: function (item) {
-        return utils.levelLabel(item.risk_level);
-      },
-      riskBadgeStyle: function (item) {
-        return { background: utils.levelColor(item.risk_level), color: '#fff' };
-      },
+    // 时间范围下限（yyyy-mm-dd 字符串，可直接比较）
+    cutoffStr: function () {
+      if (this.timeRange === 'all') return '';
+      var days = this.timeRange === 'week' ? 7 : (this.timeRange === 'month' ? 30 : 90);
+      var d = new Date();
+      d.setDate(d.getDate() - days);
+      var p = function (n) { return String(n).padStart(2, '0'); };
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    },
 
-      statusLabel: function (s) {
-        var key = String(s || '').toLowerCase();
-        var m = {
-          pending: '待检', ongoing: '进行中', submitted: '已提交', reviewed: '已审核',
-          rectifying: '整改中', verifying: '待验收', closed: '已关闭'
-        };
-        return m[key] || s || '';
-      },
-      statusClass: function (s) {
-        var key = String(s || '').toLowerCase();
-        var m = {
-          pending: 'badge-orange', ongoing: 'badge-blue', submitted: 'badge-blue',
-          reviewed: 'badge-green', rectifying: 'badge-blue', verifying: 'badge-orange',
-          closed: 'badge-gray'
-        };
-        return m[key] || 'badge-gray';
-      }
+    // 排序/比较键：取 yyyy-mm-dd
+    sortKey: function (it) { return String(it.date || '').substring(0, 10); },
+
+    itemKey: function (it) { return (it._type || 'x') + '_' + it.id; },
+
+    rowSub: function (it) {
+      var parts = [];
+      if (it.no) parts.push(it.no);
+      if (it._type === 'weekly' && it.week) parts.push('第' + it.week + '周');
+      if (it.location) parts.push(it.location);
+      if (it.inspector) parts.push(it.inspector);
+      if (it.date) parts.push(it.date.substring(0, 10));
+      return parts.join(' · ');
+    },
+
+    statusLabel: function (s) {
+      var m = {
+        pending: '待检', ongoing: '进行中', submitted: '已提交', reviewed: '已审核',
+        rectifying: '整改中', verifying: '待验收', closed: '已关闭', open: '未整改'
+      };
+      return m[String(s || '').toLowerCase()] || s || '待检';
+    },
+
+    statusClass: function (s) {
+      var m = {
+        pending: 'badge-orange', ongoing: 'badge-blue', submitted: 'badge-blue',
+        reviewed: 'badge-green', rectifying: 'badge-blue', verifying: 'badge-orange',
+        closed: 'badge-gray', open: 'badge-orange'
+      };
+      return m[String(s || '').toLowerCase()] || 'badge-gray';
+    },
+
+    // 点击进入详情：日管控 → /daily_detail；周排查无独立路由 → 提示
+    goDetail: function (it) {
+      if (it._type === 'daily') utils.go('/daily_detail?id=' + it.id);
+      else utils.toast('周排查暂未提供独立详情，可在日管控详情查看');
     }
-  };
-})();
+  },
+
+  mounted: function () { this.load(); },
+
+  template: `
+<div class="page">
+  <div class="block-title">检查记录</div>
+
+  <!-- 筛选 -->
+  <div class="card">
+    <div class="field">
+      <div class="fi-label">设备名称 / 编号</div>
+      <input class="fi-input" type="text" v-model="deviceName" placeholder="输入设备名称或编号" @keyup.enter="load" />
+    </div>
+    <div class="field">
+      <div class="fi-label">记录类型</div>
+      <select class="fi-input" v-model="type" @change="load">
+        <option value="all">全部</option>
+        <option value="daily">日管控</option>
+        <option value="weekly">周排查</option>
+      </select>
+    </div>
+    <div class="field">
+      <div class="fi-label">时间范围</div>
+      <select class="fi-input" v-model="timeRange" @change="load">
+        <option value="all">全部</option>
+        <option value="week">近一周</option>
+        <option value="month">近一月</option>
+        <option value="quarter">近三月</option>
+      </select>
+    </div>
+    <button class="btn-primary" @click="load">查 询</button>
+  </div>
+
+  <!-- 加载态 -->
+  <div v-if="loading" class="card">
+    <div class="skeleton" style="width:100%;"></div>
+    <div class="skeleton" style="width:80%;"></div>
+  </div>
+
+  <!-- 记录列表 -->
+  <div v-for="item in list" :key="itemKey(item)" class="card"
+       style="display:flex;align-items:center;gap:10px;" @click="goDetail(item)">
+    <div style="flex:1;min-width:0;">
+      <div class="ellipsis" style="font-size:15px;font-weight:600;color:var(--text);">{{ item.device || '未命名设备' }}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;">{{ rowSub(item) }}</div>
+    </div>
+    <span class="badge" :class="statusClass(item.status)">{{ statusLabel(item.status) }}</span>
+    <span style="color:var(--muted);font-size:18px;">›</span>
+  </div>
+
+  <!-- 空态 -->
+  <div v-if="showEmpty" class="empty-state">
+    <div class="empty-icon">📭</div>
+    <div class="empty-title">没有找到记录</div>
+    <div class="empty-sub">调整筛选条件后再试</div>
+  </div>
+</div>
+`
+};

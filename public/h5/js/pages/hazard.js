@@ -1,47 +1,11 @@
-// M-08 隐患排查列表 → H5 (Vue3 global build, 重构)
-// GET /api/mobile/hazards  {data:[], total}  支持 status / riskLevel / deviceId
-// 顶部风险筛选（横滑标签）+ 状态子筛选 + 隐患卡片 + FAB 上报
+// 隐患排查列表 → H5（Vue3 global build，按契约重写）
+// GET /api/mobile/hazards   api.getHazards({status,riskLevel})
+// 顶部按风险等级 + 状态筛选；项展示设备/编号/类型/风险/状态；点进 /hazard_detail?id=
 window.Pages = window.Pages || {};
 window.Pages.hazard = {
-  template: `
-  <div class="page haz">
-    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
-    <template v-else>
-      <!-- 风险筛选（横向滚动） -->
-      <div class="risk-tabs">
-        <div v-for="t in riskTabs" :key="t.key" class="risk-tab" :class="riskActive(t.key)" @click="activeRisk = t.key">
-          <span class="dot" :class="t.dot"></span>{{t.label}}
-        </div>
-      </div>
-
-      <!-- 状态子筛选 -->
-      <div class="status-tabs">
-        <div v-for="s in statusTabs" :key="s.key" class="status-tab" :class="statusActive(s.key)" @click="activeStatus = s.key">
-          {{s.label}}
-        </div>
-      </div>
-
-      <div class="list-wrap">
-        <div v-for="item in filteredList" :key="item.id" class="hcard" @click="goDetail(item.id)">
-          <div class="hcard-top">
-            <div class="hcard-desc">{{item.description}}</div>
-            <span class="badge" :class="riskClass(item.risk_level)">{{riskLabel(item.risk_level)}}</span>
-          </div>
-          <div class="hcard-sub muted">{{deviceLine(item)}}</div>
-          <div class="hcard-foot">
-            <span class="badge" :class="statusClass(item.status)">{{statusLabel(item.status)}}</span>
-            <span class="hcard-time muted">{{findTime(item)}}</span>
-          </div>
-          <div v-if="item.deadline" class="hcard-deadline">整改期限：{{item.deadline}}</div>
-        </div>
-        <div v-if="!filteredList.length" class="empty-state"><span class="muted">暂无隐患记录</span></div>
-      </div>
-    </template>
-    <button class="fab" @click="goForm">上报隐患</button>
-
-  </div>
-  `,
-  data() {
+  name: 'hazard',
+  props: ['query'],
+  data: function () {
     return {
       loading: true,
       list: [],
@@ -64,54 +28,93 @@ window.Pages.hazard = {
     };
   },
   computed: {
-    riskLabel: function (level) {
-      var m = { critical: '重大', major: '较大', general: '一般', low: '低' };
-      return m[level] || level || '';
-    },
-    riskClass: function (level) {
-      var m = { critical: 'badge-red', major: 'badge-orange', general: 'badge-yellow', low: 'badge-green' };
-      return m[level] || 'badge-gray';
-    },
-    statusLabel: function (s) {
-      var m = { pending: '待整改', rectifying: '整改中', verifying: '待验收', closed: '已关闭' };
-      return m[s] || s || '';
-    },
-    statusClass: function (s) {
-      var m = { pending: 'badge-orange', rectifying: 'badge-blue', verifying: 'badge-green', closed: 'badge-gray' };
-      return m[s] || 'badge-gray';
-    },
-    filteredList: function () {
-      var list = this.list;
-      if (this.activeRisk !== 'all') list = list.filter(function (x) { return x.risk_level === this.activeRisk; }.bind(this));
-      if (this.activeStatus !== 'all') list = list.filter(function (x) { return x.status === this.activeStatus; }.bind(this));
-      return list;
-    }
+    // 列表渲染无需裸运算符，直接用 list
+    emptyList: function () { return this.list.length === 0; }
   },
-  mounted() { this.load(); },
   methods: {
-    async load() {
-      try {
-        const d = await api.get('/api/mobile/hazards', { page: 1, size: 200 });
-        this.list = d.data || d || [];
-      } catch (e) {
-        utils.toast(e.message || '网络错误');
-      } finally {
-        this.loading = false;
-      }
+    load: function () {
+      var self = this;
+      self.loading = true;
+      var params = {};
+      if (self.activeStatus !== 'all') params.status = self.activeStatus;
+      if (self.activeRisk !== 'all') params.riskLevel = self.activeRisk;
+      api.getHazards(params).then(function (d) {
+        var arr = d && d.data;
+        self.list = Array.isArray(arr) ? arr : (Array.isArray(d) ? d : []);
+      }).catch(function (e) {
+        self.list = [];
+        utils.toast(e && e.message ? e.message : '网络错误');
+      }).then(function () {
+        self.loading = false;
+      });
     },
-    goForm() { utils.go('/hazard_form'); },
-    goDetail(id) { utils.go('/hazard_detail?id=' + id); },
-    riskActive(key) { return this.activeRisk === key ? 'on' : ''; },
-    statusActive(key) { return this.activeStatus === key ? 'on' : ''; },
-    deviceLine(item) {
+    onRisk: function (key) { this.activeRisk = key; this.load(); },
+    onStatus: function (key) { this.activeStatus = key; this.load(); },
+    isRiskOn: function (key) { return this.activeRisk === key; },
+    isStatusOn: function (key) { return this.activeStatus === key; },
+    goForm: function () { utils.go('/hazard_form'); },
+    goDetail: function (id) { utils.go('/hazard_detail?id=' + id); },
+    // 风险等级展示统一走 utils.levelColor / utils.levelLabel
+    levelLabel: function (level) { return utils.levelLabel(level); },
+    levelColor: function (level) { return utils.levelColor(level); },
+    statusLabel: function (status) { return utils.statusLabel(status); },
+    statusColor: function (status) { return utils.statusColor(status); },
+    // 设备名/位置 拼装（JS 内拼接，模板不出现运算符）
+    deviceLine: function (item) {
       var line = item.device_name || item.deviceName || '未知设备';
       if (item.location) line = line + ' · ' + item.location;
       else if (item.device_location) line = line + ' · ' + item.device_location;
       return line;
     },
-    findTime(item) {
-      var t = item.find_time || item.findTime || item.createdAt || item.create_time || item.created_at || '';
+    // 设备编号 · 隐患类型 拼装
+    codeLine: function (item) {
+      var parts = [];
+      if (item.device_code || item.deviceCode) parts.push(item.device_code || item.deviceCode);
+      if (item.hazard_type || item.hazardType) parts.push(item.hazard_type || item.hazardType);
+      return parts.join(' · ');
+    },
+    findTime: function (item) {
+      var t = item.find_time || item.findTime || item.created_at || item.createdAt || item.create_time || '';
       return t ? utils.formatTime(t) : '';
     }
-  }
+  },
+  mounted: function () { this.load(); },
+  template: `
+  <div class="page haz">
+    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+    <template v-else>
+      <!-- 风险等级筛选（横向滚动） -->
+      <div class="risk-tabs">
+        <div v-for="t in riskTabs" :key="t.key" class="risk-tab" :class="isRiskOn(t.key) ? 'on' : ''" @click="onRisk(t.key)">
+          <span class="dot" :class="t.dot"></span>{{ t.label }}
+        </div>
+      </div>
+
+      <!-- 状态筛选 -->
+      <div class="status-tabs">
+        <div v-for="s in statusTabs" :key="s.key" class="status-tab" :class="isStatusOn(s.key) ? 'on' : ''" @click="onStatus(s.key)">
+          {{ s.label }}
+        </div>
+      </div>
+
+      <div class="list-wrap">
+        <div v-for="(item, i) in list" :key="item.id || i" class="hcard" @click="goDetail(item.id)">
+          <div class="hcard-top">
+            <div class="hcard-desc">{{ item.description }}</div>
+            <span class="badge" :style="{ background: levelColor(item.risk_level), color: '#fff' }">{{ levelLabel(item.risk_level) }}</span>
+          </div>
+          <div class="hcard-sub muted">{{ deviceLine(item) }}</div>
+          <div class="hcard-sub muted">{{ codeLine(item) }}</div>
+          <div class="hcard-foot">
+            <span class="badge" :style="{ background: statusColor(item.status), color: '#fff' }">{{ statusLabel(item.status) }}</span>
+            <span class="hcard-time muted">{{ findTime(item) }}</span>
+          </div>
+          <div v-if="item.deadline" class="hcard-deadline">整改期限：{{ item.deadline }}</div>
+        </div>
+        <div v-if="emptyList" class="empty-state"><span class="muted">暂无隐患记录</span></div>
+      </div>
+    </template>
+    <button class="fab" @click="goForm">＋</button>
+  </div>
+  `
 };

@@ -1,131 +1,109 @@
-// 审批待办
+// 审批待办列表
 window.Pages = window.Pages || {};
 window.Pages.approval = {
+  name: 'approval',
+  props: ['query'],
   template: `
 <div class="page">
-  <div class="tab-bar card flex" style="gap:0;">
-    <div :class="['tab', tab==='pending' ? 'active' : '']" :style="{fontSize:'14px',flex:'1',padding:'10px 0'}" @click="switchTab('pending')">
-      待审批 <span v-if="hasPending" class="badge-orange">{{pendingList.length}}</span>
+  <div class="filter-bar" style="margin-bottom:10px;">
+    <div :class="['check-tab', isPendingTab ? 'check-tab-on' : '']" @click="switchTab('pending')">
+      待审批 <span v-if="hasPending" class="badge badge-orange">{{pendingCount}}</span>
     </div>
-    <div :class="['tab', tab==='done' ? 'active' : '']" :style="{fontSize:'14px',flex:'1',padding:'10px 0'}" @click="switchTab('done')">已审批</div>
-  </div>
-
-  <div v-if="tab==='pending'">
-    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
-    <div v-else-if="pendingEmpty" class="empty-state"><span class="muted">暂无待审批事项</span></div>
-    <div v-else>
-      <div v-for="item in pendingList" :key="item.id" class="list-item card" @click="goDetail(item.id)">
-        <div class="item-main">
-          <div class="item-title ellipsis">{{bizTitle(item)}}</div>
-          <span class="status-badge" :style="{background: statusColor(item.current_node_status), color:'#fff'}">{{statusLabel(item.current_node_status)}}</span>
-        </div>
-        <div class="item-sub muted">{{bizLabel(item.biz_type)}}<span v-if="hasNode(item)"> · {{item.current_node}}</span></div>
-        <div class="item-sub muted">申请人：{{applicant(item)}} · {{createdAt(item)}}</div>
-      </div>
+    <div :class="['check-tab', isAllTab ? 'check-tab-on' : '']" @click="switchTab('all')">
+      全部
     </div>
   </div>
 
+  <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+  <div v-else-if="listEmpty" class="empty-state"><span class="muted">暂无审批记录</span></div>
   <div v-else>
-    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
-    <div v-else-if="doneEmpty" class="empty-state"><span class="muted">暂无已审批记录</span></div>
-    <div v-else>
-      <div v-for="item in doneList" :key="item.id" class="list-item card" @click="goDetail(item.id)">
-        <div class="item-main">
-          <div class="item-title ellipsis">{{bizTitle(item)}}</div>
-          <span class="status-badge" :style="{background: statusColor(item.status), color:'#fff'}">{{decisionLabel(item.status)}}</span>
-        </div>
-        <div class="item-sub muted">{{bizLabel(item.biz_type)}}<span v-if="hasNode(item)"> · {{item.current_node}}</span></div>
-        <div class="item-sub muted">审批人：{{approver(item)}} · {{decidedAt(item)}}</div>
+    <div v-for="(item, i) in list" :key="item.id || i" class="device-card" @click="goDetail(item.id)">
+      <div class="flex-between" style="margin-bottom:6px;">
+        <span class="dev-name ellipsis" style="flex:1;">{{bizTitle(item)}}</span>
+        <span class="badge" :style="{background: statusBg(item.status), color:'#fff'}">{{statusText(item.status)}}</span>
       </div>
+      <div class="dev-sub">
+        {{bizLabel(item.business_type)}}
+        <span v-if="hasNode(item)"> · {{nodeName(item)}}</span>
+      </div>
+      <div class="dev-sub">{{createdAt(item)}}</div>
     </div>
   </div>
 </div>
 `,
-  data() {
+  data: function () {
     return {
       tab: 'pending',
-      pendingList: [],
-      doneList: [],
+      list: [],
       loading: true
     };
   },
   computed: {
-    hasPending: function () {
-      return this.pendingList.length > 0;
+    isPendingTab: function () { return this.tab === 'pending'; },
+    isAllTab: function () { return this.tab === 'all'; },
+    hasPending: function () { return this.pendingCount > 0; },
+    pendingCount: function () {
+      return this.list.filter(function (item) { return item.status === 'PENDING'; }).length;
     },
-    pendingEmpty: function () {
-      return this.pendingList.length === 0;
-    },
-    doneEmpty: function () {
-      return this.doneList.length === 0;
-    }
+    listEmpty: function () { return this.list.length === 0; }
   },
-  mounted() {
-    this.load();
-  },
+  mounted: function () { this.load(); },
   methods: {
     switchTab: function (tab) {
       if (this.tab === tab) return;
       this.tab = tab;
       this.load();
     },
-    load: async function () {
-      this.loading = true;
-      try {
-        if (this.tab === 'pending') {
-          var d = await api.get('/api/mobile/approvals');
-          this.pendingList = d.data || d || [];
-        } else {
-          var d1 = await api.get('/api/mobile/approvals', { status: 'APPROVED' });
-          var d2 = await api.get('/api/mobile/approvals', { status: 'REJECTED' });
-          this.doneList = [(d1.data || d1 || []), (d2.data || d2 || [])].flat();
-        }
-      } catch (e) {
+    load: function () {
+      var self = this;
+      self.loading = true;
+      var params = {};
+      if (self.tab === 'pending') params.status = 'PENDING';
+      api.getApprovals(params).then(function (d) {
+        self.list = d.data || d || [];
+      }).catch(function () {
         utils.toast('加载失败');
-      } finally {
-        this.loading = false;
-      }
+      }).finally(function () {
+        self.loading = false;
+      });
     },
     bizTitle: function (item) {
-      return item.biz_title || item.title || '';
-    },
-    applicant: function (item) {
-      return item.applicant_name || item.applicant || '';
-    },
-    createdAt: function (item) {
-      return item.created_at || item.create_time || '';
-    },
-    hasNode: function (item) {
-      return !!item.current_node;
-    },
-    approver: function (item) {
-      return item.approver_name || item.decided_by || item.approver || '';
-    },
-    decidedAt: function (item) {
-      return item.decided_at || item.update_time || '';
+      return item.business_title || item.title || '审批单';
     },
     bizLabel: function (type) {
       var m = {
-        inspection: '日管控', daily: '日管控', weekly: '周排查',
-        hazard: '隐患上报', emergency: '应急事件',
-        work_order: '整改工单', monthly: '月调度'
+        daily_inspection: '日管控',
+        weekly_inspection: '周排查',
+        hazard: '隐患上报',
+        emergency: '应急事件',
+        work_order: '整改工单',
+        monthly: '月调度'
       };
       return m[type] || type || '审批';
     },
-    statusColor: function (s) {
-      var m = { PENDING: '#FF8C00', APPROVED: '#52C41A', REJECTED: '#F5222D', FORWARDED: '#1677FF' };
-      return m[String(s || '').toUpperCase()] || '#999';
+    hasNode: function (item) { return !!(item.node_name || item.current_node); },
+    nodeName: function (item) { return item.node_name || item.current_node || ''; },
+    createdAt: function (item) {
+      return utils.formatDateTime(item.created_at || item.create_time || '');
     },
-    statusLabel: function (s) {
-      var m = { PENDING: '待审批', APPROVED: '已批准', REJECTED: '已驳回', FORWARDED: '已转审' };
-      return m[String(s || '').toUpperCase()] || '待审批';
+    statusBg: function (s) {
+      var m = {
+        PENDING: 'var(--orange)',
+        APPROVED: 'var(--green)',
+        REJECTED: 'var(--red)',
+        FORWARDED: 'var(--primary)'
+      };
+      return m[String(s || '').toUpperCase()] || 'var(--muted)';
     },
-    decisionLabel: function (s) {
-      var m = { APPROVED: '批准', REJECTED: '驳回' };
-      return m[String(s || '').toUpperCase()] || '已处理';
+    statusText: function (s) {
+      var m = {
+        PENDING: '待审批',
+        APPROVED: '已批准',
+        REJECTED: '已驳回',
+        FORWARDED: '已转审'
+      };
+      return m[String(s || '').toUpperCase()] || (s || '待审批');
     },
-    goDetail: function (id) {
-      utils.go('/approval_detail?id=' + id);
-    }
+    goDetail: function (id) { utils.go('/approval_detail?id=' + id); }
   }
 };

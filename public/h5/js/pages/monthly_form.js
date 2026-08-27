@@ -4,6 +4,8 @@
 // 与 daily_form 相同架构，模板字段略有不同
 window.Pages = window.Pages || {};
 window.Pages.monthly_form = {
+  name: 'monthly_form',
+  props: ['query'],
   template: `
   <div class="page mf">
 

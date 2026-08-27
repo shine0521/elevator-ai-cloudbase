@@ -1,68 +1,89 @@
-// M-11 设备扫码
+// 设备扫码
 window.Pages = window.Pages || {};
 window.Pages.device_scan = {
+  name: 'device_scan',
+  props: ['query'],
   template: `
 <div class="page">
-  <div class="card scan-hero" @click="doScan">
-    <div class="scan-icon">📷</div>
-    <div class="scan-btn-text">扫码查询设备</div>
-    <div class="scan-hint muted">点击按钮或长按扫一扫</div>
+  <div class="card" style="text-align:center;padding:32px 20px;margin-bottom:12px;" @click="doScan">
+    <div style="font-size:64px;margin-bottom:12px;">📷</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px;">扫码查询设备</div>
+    <div class="muted" style="font-size:13px;">点击按钮或长按扫一扫</div>
   </div>
-  
-  <!-- 扫码历史 -->
-  <div v-if="history.length>0" class="section">
-    <div class="section-header">
-      <text class="section-title">最近扫码</text>
-      <text class="muted" @click="clearHistory">清除</text>
+
+  <div v-if="scanning" class="empty-state"><span class="muted">识别中...</span></div>
+  <div v-if="scanError" class="empty-state" style="color:var(--danger);">{{scanError}}</div>
+
+  <div v-if="hasHistory">
+    <div class="block-title">最近扫码</div>
+    <div v-for="(item, i) in history" :key="item.id || i" class="device-card" @click="goHistory(item.id)">
+      <div class="flex-between" style="margin-bottom:4px;">
+        <span class="dev-name ellipsis" style="flex:1;">{{item.device_name || '设备'}}</span>
+        <span class="badge" :style="{background: statusBg(item.status), color:'#fff'}">{{statusText(item.status)}}</span>
+      </div>
+      <div class="dev-sub" v-if="item.location">{{item.location}}</div>
     </div>
-    <div v-for="item in history" :key="item.id"
-      class="list-item card"
-      @click="goHistory(item.id)">
-      <div class="item-title">{{item.device_name || item.name || '设备' + item.id}}</div>
-      <div class="item-sub muted">{{item.location || item.address || ''}} {{item.status ? '| ' + item.status : ''}}</div>
+    <div style="text-align:center;padding:10px 0;">
+      <span class="muted" style="font-size:13px;cursor:pointer;" @click="clearHistory">清除记录</span>
     </div>
   </div>
 </div>
 `,
-  data() {
+  data: function () {
     return {
-      history: []
+      history: [],
+      scanning: false,
+      scanError: ''
     };
   },
-  mounted() {
-    const h = JSON.parse(localStorage.getItem('scan_history') || '[]');
-    this.history = h;
+  computed: {
+    hasHistory: function () { return this.history.length > 0; }
+  },
+  mounted: function () {
+    try {
+      this.history = JSON.parse(localStorage.getItem('scan_history') || '[]');
+    } catch (e) {
+      this.history = [];
+    }
   },
   methods: {
-    async doScan() {
-      try {
-        const result = await utils.scanCode();
-        const code = result.trim();
-        if (!code) {
-          utils.toast('扫码内容为空');
+    doScan: function () {
+      var self = this;
+      self.scanError = '';
+      self.scanning = true;
+      utils.scanCode().then(function (code) {
+        return api.scanDevice(code);
+      }).then(function (d) {
+        var device = d.data || d;
+        if (!device || !device.id) {
+          self.scanError = '未找到该设备';
           return;
         }
-        const d = await api.get('/api/mobile/devices/scan', { code: code });
-        const device = d.data || d;
-        if (device && device.id) {
-          const h = [device, ...this.history.filter(i => i.id !== device.id)].slice(0, 20);
-          this.history = h;
-          localStorage.setItem('scan_history', JSON.stringify(h));
-          utils.go('/device_detail?id=' + device.id);
-        } else {
-          utils.toast('设备不存在');
-        }
-      } catch (e) {
-        utils.toast('扫码失败');
-      }
+        // 保存到历史
+        var hist = self.history.filter(function (it) { return it.id !== device.id; });
+        hist.unshift({ id: device.id, device_name: device.device_name, location: device.location, status: device.status });
+        self.history = hist.slice(0, 20);
+        try { localStorage.setItem('scan_history', JSON.stringify(self.history)); } catch (e) {}
+        utils.go('/device_detail?id=' + device.id);
+      }).catch(function (err) {
+        if (err && err.message === 'cancelled') return;
+        if (err && err.message === 'empty') { self.scanError = '扫码内容为空'; return; }
+        self.scanError = '扫码失败，设备不存在或网络异常';
+      }).finally(function () {
+        self.scanning = false;
+      });
     },
-    goHistory(id) {
-      utils.go('/device_detail?id=' + id);
-    },
-    clearHistory() {
+    goHistory: function (id) { utils.go('/device_detail?id=' + id); },
+    clearHistory: function () {
       this.history = [];
-      localStorage.removeItem('scan_history');
+      try { localStorage.removeItem('scan_history'); } catch (e) {}
       utils.toast('已清除');
+    },
+    statusBg: function (s) {
+      return utils.statusColor(s);
+    },
+    statusText: function (s) {
+      return utils.statusLabel(s);
     }
   }
 };

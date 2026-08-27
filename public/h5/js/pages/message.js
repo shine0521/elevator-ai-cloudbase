@@ -1,47 +1,56 @@
 // 消息中心
 window.Pages = window.Pages || {};
 window.Pages.message = {
+  name: 'message',
+  props: ['query'],
   template: `
 <div class="page">
-  <div class="flex-between" style="margin-bottom:10px;">
-    <div class="muted text-sm">未读 {{unreadTotal()}} 条</div>
-    <button class="btn-mini" @click="readAll">全部已读</button>
+  <!-- 统计栏 -->
+  <div class="flex-between" style="padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:10px;">
+    <div class="muted text-sm">未读 {{unreadCount}} 条</div>
+    <button class="btn-sm btn-ghost" :disabled="submitting" @click="markAllRead">全部已读</button>
   </div>
 
-  <div class="flex" style="gap:6px; margin-bottom:10px;">
-    <div v-for="t in catTabs" :key="t.key" :style="catTabStyle(t.key)" @click="switchCat(t.key)">
+  <!-- 分类 Tab -->
+  <div class="filter-bar" style="margin-bottom:10px;">
+    <div v-for="t in catTabs" :key="t.key"
+      :class="['check-tab', isActiveCat(t.key) ? 'check-tab-on' : '']"
+      @click="switchCat(t.key)">
       {{t.label}}
+      <span v-if="catBadge(t.key) > 0" class="badge badge-orange" style="margin-left:3px;">{{catBadge(t.key)}}</span>
     </div>
   </div>
 
   <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
   <div v-else-if="listEmpty" class="empty-state"><span class="muted">暂无消息</span></div>
   <div v-else>
-    <div v-for="item in list" :key="item.id" class="msg-swipe">
+    <div v-for="(item, i) in list" :key="item.id || i" class="msg-swipe">
       <div class="msg-del" @click="delMsg(item)">删除</div>
-      <div class="msg-item" :class="item.is_read ? '' : 'unread'" :style="msgStyle(item)"
-           @click="onTapMsg(item)"
-           @touchstart="startSwipe(item, $event)"
-           @touchmove="moveSwipe(item, $event)"
-           @touchend="endSwipe(item)">
-        <div class="msg-ico" :style="{background: categoryBg(item.category)}">{{categoryIcon(item.category)}}</div>
+      <div class="msg-item" :class="isUnread(item) ? 'unread' : ''"
+        :style="msgStyle(item)"
+        @click="onTap(item)"
+        @touchstart="startSwipe(item, $event)"
+        @touchmove="moveSwipe(item, $event)"
+        @touchend="endSwipe(item)">
+        <div class="msg-ico" :style="{background: catBg(item.category)}">{{catIcon(item.category)}}</div>
         <div class="msg-body">
           <div class="msg-t ellipsis">{{item.title}}</div>
           <div class="msg-c">{{item.content}}</div>
           <div class="msg-time">{{msgTime(item)}}</div>
         </div>
-        <div v-if="!item.is_read" class="dot-unread"></div>
+        <div v-if="isUnread(item)" class="dot-unread"></div>
       </div>
     </div>
   </div>
 </div>
 `,
-  data() {
+  data: function () {
     return {
       cat: 'all',
       list: [],
       stats: {},
       loading: true,
+      submitting: false,
       openId: null,
       curOffset: 0,
       justSwiped: false,
@@ -51,22 +60,22 @@ window.Pages.message = {
   computed: {
     catTabs: function () {
       return [
-        { key: 'all', label: '全部' },
+        { key: 'all',      label: '全部' },
         { key: 'approval', label: '审批' },
-        { key: 'warning', label: '预警' },
-        { key: 'hazard', label: '隐患' },
-        { key: 'emergency', label: '应急' },
-        { key: 'system', label: '系统' }
+        { key: 'warning',  label: '预警' },
+        { key: 'workorder',label: '工单' },
+        { key: 'system',   label: '系统' },
+        { key: 'emergency',label: '应急' }
       ];
     },
-    listEmpty: function () {
-      return this.list.length === 0;
+    listEmpty: function () { return this.list.length === 0; },
+    unreadCount: function () {
+      return this.stats.unread || this.stats.unread_total || 0;
     }
   },
-  mounted() {
-    this.load();
-  },
+  mounted: function () { this.load(); },
   methods: {
+    isActiveCat: function (key) { return this.cat === key; },
     switchCat: function (key) {
       if (this.cat === key) return;
       this.cat = key;
@@ -74,48 +83,57 @@ window.Pages.message = {
       this.curOffset = 0;
       this.load();
     },
-    catTabStyle: function (key) {
-      var active = this.cat === key;
-      return {
-        flex: '1',
-        textAlign: 'center',
-        padding: '8px 0',
-        borderRadius: '8px',
-        fontSize: '13px',
-        cursor: 'pointer',
-        background: active ? 'var(--primary)' : '#fff',
-        color: active ? '#fff' : 'var(--text)',
-        border: active ? '1px solid var(--primary)' : '1px solid var(--border)'
+    catBadge: function (key) {
+      if (key === 'all') return this.unreadCount;
+      var m = {
+        approval: this.stats.approvalUnread || 0,
+        warning: this.stats.warningUnread || 0,
+        workorder: this.stats.workorderUnread || 0,
+        emergency: this.stats.emergencyUnread || 0,
+        system: 0
       };
+      return m[key] || 0;
     },
-    unreadTotal: function () {
-      return this.stats.unread_total || 0;
-    },
-    load: async function () {
-      this.loading = true;
-      try {
-        var params = {};
-        if (this.cat !== 'all') params.category = this.cat;
-        var res = await api.get('/api/mobile/messages', params);
-        this.list = res.data || res || [];
-        var s = await api.get('/api/mobile/messages/stats');
-        this.stats = s || {};
-      } catch (e) {
+    isUnread: function (item) { return !item.is_read; },
+    load: function () {
+      var self = this;
+      self.loading = true;
+      var params = {};
+      if (self.cat !== 'all') params.category = self.cat;
+      Promise.all([
+        api.getMessages(params),
+        api.getMessageStats()
+      ]).then(function (results) {
+        var d = results[0];
+        var s = results[1];
+        self.list = d.data || d || [];
+        self.stats = s || {};
+      }).catch(function () {
         utils.toast('加载失败');
-      } finally {
-        this.loading = false;
-      }
+      }).finally(function () {
+        self.loading = false;
+      });
     },
-    categoryLabel: function (cat) {
-      var m = { approval: '审批', warning: '预警', hazard: '隐患', workorder: '工单', system: '系统', emergency: '应急' };
-      return m[cat] || cat || '通知';
+    catIcon: function (cat) {
+      var m = {
+        approval: '审',
+        warning: '警',
+        workorder: '工',
+        system: '系',
+        emergency: '应',
+        hazard: '患'
+      };
+      return m[cat] || '通';
     },
-    categoryIcon: function (cat) {
-      var m = { approval: '✅', warning: '⚠️', hazard: '🔧', workorder: '📋', system: '⚙️', emergency: '🚨' };
-      return m[cat] || '📢';
-    },
-    categoryBg: function (cat) {
-      var m = { approval: '#52C41A', warning: '#FA8C16', hazard: '#1677FF', workorder: '#722ED1', system: '#999', emergency: '#FF4D4F' };
+    catBg: function (cat) {
+      var m = {
+        approval: '#52C41A',
+        warning: '#FA8C16',
+        workorder: '#722ED1',
+        system: '#999',
+        emergency: '#FF4D4F',
+        hazard: '#1677FF'
+      };
       return m[cat] || '#999';
     },
     relativeTime: function (ts) {
@@ -165,41 +183,63 @@ window.Pages.message = {
       this.justSwiped = this.swiping.moved;
       this.swiping.id = null;
     },
-    onTapMsg: function (item) {
+    onTap: function (item) {
       if (this.justSwiped) { this.justSwiped = false; return; }
       if (this.openId === item.id) { this.openId = null; this.curOffset = 0; return; }
       if (!item.is_read) {
         this.markRead(item);
       }
+      // 跳转到关联页面
+      this.navigateRelated(item);
     },
-    markRead: async function (item) {
-      try {
-        await api.post('/api/mobile/messages/' + item.id + '/read');
+    markRead: function (item) {
+      var self = this;
+      api.markRead(item.id).then(function () {
         item.is_read = true;
-        var s = await api.get('/api/mobile/messages/stats');
-        this.stats = s || this.stats;
-      } catch (e) { /* silent */ }
+        return api.getMessageStats();
+      }).then(function (s) {
+        self.stats = s || {};
+      }).catch(function () {});
     },
-    readAll: async function () {
-      try {
-        await api.post('/api/mobile/messages/read-all');
-        this.list.forEach(function (it) { it.is_read = true; });
-        this.stats = { unread_total: 0, by_category: {} };
+    markAllRead: function () {
+      var self = this;
+      if (self.submitting) return;
+      self.submitting = true;
+      api.markAllRead().then(function () {
+        self.list.forEach(function (it) { it.is_read = true; });
+        self.stats = { unread: 0, unread_total: 0 };
         utils.toast('已全部标记已读');
-      } catch (e) {
+      }).catch(function () {
         utils.toast('操作失败');
-      }
+      }).finally(function () {
+        self.submitting = false;
+      });
     },
-    delMsg: async function (item) {
-      try {
-        await api.del('/api/mobile/messages/' + item.id);
-        this.list = this.list.filter(function (it) { return it.id !== item.id; });
-        this.openId = null;
-        this.curOffset = 0;
+    delMsg: function (item) {
+      var self = this;
+      api.del('/api/mobile/messages/' + item.id).then(function () {
+        self.list = self.list.filter(function (it) { return it.id !== item.id; });
+        if (self.openId === item.id) { self.openId = null; self.curOffset = 0; }
         utils.toast('已删除');
-      } catch (e) {
+      }).catch(function () {
         utils.toast('删除失败');
-      }
+      });
+    },
+    navigateRelated: function (item) {
+      var rt = item.related_type || item.category;
+      var rid = item.related_id || item.business_id;
+      if (!rid) return;
+      var map = {
+        daily_inspection: '/daily_detail?id=' + rid,
+        weekly_inspection: '/weekly_detail?id=' + rid,
+        hazard: '/hazard_detail?id=' + rid,
+        work_order: '/work_order_detail?id=' + rid,
+        approval: '/approval_detail?id=' + rid,
+        approval_detail: '/approval_detail?id=' + rid,
+        emergency: '/emergency_form?id=' + rid
+      };
+      var path = map[rt];
+      if (path) utils.go(path);
     }
   }
 };
