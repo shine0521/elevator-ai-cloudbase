@@ -31,25 +31,41 @@
         barAction.value = { show: !!text, text: text || '', handler: handler || null };
       };
 
-      // 路由解析与登录拦截
+      // 路由解析与登录拦截（错误防护：route() 调用时 errorHandler 尚未注册）
       function route() {
-        var r = Router.parse();
-        var isLogin = r.path === '/login';
-        if (!isLogin && !Store.getToken()) {
-          location.hash = '#/login';
-          return;
+        try {
+          if (typeof Router === 'undefined' || !Router.parse) {
+            console.error('[app init] Router 不存在，回退到 login');
+            view.value = 'login';
+            return;
+          }
+          var r = Router.parse();
+          var isLogin = r && r.path === '/login';
+          if (!isLogin && !Store.getToken()) {
+            location.hash = '#/login';
+            return;
+          }
+          var name = (Router.routes && Router.routes[r && r.path]) || (isLogin ? 'login' : 'home');
+          view.value = name || 'login';
+          title.value = (Router.titleOf && Router.titleOf(name)) || '';
+          tab.value = (Router.tabOf && Router.tabOf(name)) || '';
+          showTab.value = !!(Router.tabOf && Router.tabOf(name));
+          canBack.value = !isLogin && r && r.path !== '/';
+          hideBar.value = !!isLogin;
+          var newQuery = {};
+          if (r && r.query) Object.assign(newQuery, r.query);
+          query.value = newQuery;
+        } catch (err) {
+          console.error('[app route error]', err);
+          view.value = 'login';
         }
-        var name = Router.routes[r.path] || (isLogin ? 'login' : 'home');
-        view.value = name;
-        title.value = Router.titleOf(name) || '';
-        tab.value = Router.tabOf(name) || '';
-        showTab.value = !!Router.tabOf(name);
-        canBack.value = !isLogin && r.path !== '/';
-        hideBar.value = isLogin;
-        var newQuery = {};
-        Object.assign(newQuery, r.query);
-        query.value = newQuery;
       }
+
+      // 注册 errorHandler 要早于 route() 调用
+      app.config.errorHandler = function (err, instance, info) {
+        console.error('[app error]', err, info);
+        appError.value = { show: true, msg: (err && (err.message || String(err))) || '\u9875\u9762\u51fa\u9519\u4e86' };
+      };
 
       window.addEventListener('hashchange', route);
       if (!location.hash) location.hash = '#/';
@@ -107,12 +123,6 @@
         ptrStartY = 0;
         ptrTouching = false;
       }
-
-      // 全局错误边界
-      app.config.errorHandler = function (err, instance, info) {
-        console.error('[app error]', err, info);
-        appError.value = { show: true, msg: (err && err.message) ? err.message : '\u9875\u9762\u51fa\u9519\u4e86' };
-      };
 
       function reloadPage() { appError.value.show = false; location.reload(); }
 
