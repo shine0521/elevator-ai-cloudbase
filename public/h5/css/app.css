@@ -1,0 +1,106 @@
+:root {
+  --primary: #1082FF;
+  --bg: #F5F6FA;
+  --card: #FFFFFF;
+  --text: #1a1a1a;
+  --muted: #999;
+  --border: #eee;
+  --green: #52C41A;
+  --orange: #FAAD14;
+  --red: #F5222D;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #e9ecf1; color: var(--text); font-size: 15px;
+}
+#app { height: 100vh; }
+.app-shell {
+  display: flex; flex-direction: column;
+  max-width: 480px; margin: 0 auto; height: 100vh;
+  background: var(--bg); position: relative; overflow: hidden;
+  box-shadow: 0 0 20px rgba(0,0,0,.08);
+}
+/* 顶部栏 */
+.app-bar {
+  height: 48px; flex: 0 0 48px;
+  display: flex; align-items: center; padding: 0 8px;
+  background: var(--primary); color: #fff; position: relative;
+}
+.bar-back {
+  background: none; border: none; color: #fff; font-size: 26px;
+  width: 40px; line-height: 48px; cursor: pointer; padding: 0;
+}
+.bar-title {
+  flex: 1; text-align: center; font-size: 17px; font-weight: 600; margin: 0;
+  position: absolute; left: 48px; right: 8px;
+}
+/* 内容区 */
+.app-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
+.app-body.noBar { padding: 0; }
+/* 底部 Tab */
+.app-tab {
+  flex: 0 0 54px; height: 54px; display: flex;
+  background: #fff; border-top: 1px solid var(--border);
+}
+.tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--muted); text-decoration: none; font-size: 11px; gap: 2px;
+}
+.tab .ti { font-size: 20px; }
+.tab.on { color: var(--primary); }
+/* 卡片 */
+.card { background: var(--card); border-radius: 10px; padding: 12px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+/* 按钮 */
+.btn-primary {
+  background: var(--primary); color: #fff; border: none; border-radius: 8px;
+  padding: 12px; width: 100%; font-size: 16px; cursor: pointer; margin-top: 8px;
+}
+.btn-primary:active { opacity: .85; }
+.btn-ghost { background: #fff; color: var(--primary); border: 1px solid var(--primary); border-radius: 8px; padding: 10px; width: 100%; cursor: pointer; }
+/* 输入 */
+.field { margin-bottom: 12px; }
+.field input, .field textarea, .field select {
+  width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 11px; font-size: 15px; background: #fff;
+}
+.field textarea { min-height: 80px; resize: vertical; }
+/* 列表 */
+.list-item { display: block; text-decoration: none; color: inherit; }
+.item-main { display: flex; justify-content: space-between; align-items: center; }
+.item-title { font-size: 15px; font-weight: 500; }
+.item-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.status-badge { color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+/* 网格 */
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.grid-item { background: #fff; border-radius: 10px; padding: 14px 4px; text-align: center; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+/* 统计 */
+.stat-row { display: flex; }
+.stat { flex: 1; text-align: center; padding: 6px 0; }
+.stat-num { font-size: 22px; font-weight: 700; color: var(--primary); }
+.stat-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+/* Toast */
+.toast {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
+  background: rgba(0,0,0,.8); color: #fff; padding: 10px 18px; border-radius: 8px;
+  font-size: 14px; z-index: 9999; max-width: 70%;
+}
+/* 通用工具类 */
+.muted { color: var(--muted); }
+.center { text-align: center; }
+.loading-row, .empty-state { text-align: center; padding: 40px 0; }
+.fab {
+  position: fixed; right: 20px; bottom: 70px; width: 52px; height: 52px; border-radius: 50%;
+  background: var(--primary); color: #fff; border: none; font-size: 24px; z-index: 50;
+  max-width: 480px; margin-left: calc((100vw - 480px) / 2 + 380px);
+}
+.tag { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; }
+.tag-red { background: #fff1f0; color: var(--red); }
+.tag-orange { background: #fff7e6; color: var(--orange); }
+.tag-green { background: #f6ffed; color: var(--green); }
+/* 步骤条 */
+.steps { display: flex; margin-bottom: 16px; }
+.step { flex: 1; text-align: center; font-size: 12px; color: var(--muted); position: relative; }
+.step.on { color: var(--primary); font-weight: 600; }
+.step .dot { width: 22px; height: 22px; line-height: 22px; border-radius: 50%; background: #ddd; color: #fff; margin: 0 auto 4px; }
+.step.on .dot { background: var(--primary); }

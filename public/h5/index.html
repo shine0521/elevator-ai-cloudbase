@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1082FF">
+  <title>特安助 · 移动端</title>
+  <script src="/vue.js"></script>
+  <link rel="stylesheet" href="/h5/css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div class="app-shell">
+      <header class="app-bar" v-if="!hideBar">
+        <button class="bar-back" v-if="canBack" @click="goBack">‹</button>
+        <h1 class="bar-title">{{title}}</h1>
+      </header>
+      <main class="app-body" :class="{noBar: hideBar}">
+        <component :is="view" :query="query"></component>
+      </main>
+      <nav class="app-tab" v-if="showTab">
+        <a class="tab" :class="{on: tab==='home'}" href="#/"><span class="ti">🏠</span><span>工作台</span></a>
+        <a class="tab" :class="{on: tab==='check'}" href="#/check"><span class="ti">🔍</span><span>检查</span></a>
+        <a class="tab" :class="{on: tab==='message'}" href="#/message"><span class="ti">🔔</span><span>消息</span></a>
+        <a class="tab" :class="{on: tab==='profile'}" href="#/profile"><span class="ti">👤</span><span>我的</span></a>
+      </nav>
+    </div>
+    <div class="toast" v-if="toast.show">{{toast.msg}}</div>
+  </div>
+
+  <!-- 框架层 -->
+  <script src="/h5/js/store.js"></script>
+  <script src="/h5/js/api.js"></script>
+  <script src="/h5/js/utils.js"></script>
+  <script src="/h5/js/field.js"></script>
+  <!-- 页面层（顺序无关，router 在 app.js 前注册即可） -->
+  <script src="/h5/js/pages/login.js"></script>
+  <script src="/h5/js/pages/home.js"></script>
+  <script src="/h5/js/pages/check.js"></script>
+  <script src="/h5/js/pages/daily.js"></script>
+  <script src="/h5/js/pages/daily_form.js"></script>
+  <script src="/h5/js/pages/weekly.js"></script>
+  <script src="/h5/js/pages/weekly_form.js"></script>
+  <script src="/h5/js/pages/hazard.js"></script>
+  <script src="/h5/js/pages/hazard_form.js"></script>
+  <script src="/h5/js/pages/work_order.js"></script>
+  <script src="/h5/js/pages/work_order_detail.js"></script>
+  <script src="/h5/js/pages/device_scan.js"></script>
+  <script src="/h5/js/pages/device_detail.js"></script>
+  <script src="/h5/js/pages/emergency.js"></script>
+  <script src="/h5/js/pages/approval.js"></script>
+  <script src="/h5/js/pages/approval_detail.js"></script>
+  <script src="/h5/js/pages/message.js"></script>
+  <script src="/h5/js/pages/profile.js"></script>
+  <script src="/h5/js/pages/record.js"></script>
+  <!-- 路由 + 启动 -->
+  <script src="/h5/js/router.js"></script>
+  <script src="/h5/js/app.js"></script>
+</body>
+</html>

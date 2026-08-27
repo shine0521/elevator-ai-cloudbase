@@ -205,8 +205,9 @@ function isMobileUA(req) {
 app.use((req, res, next) => {
   const p = req.path;
 
-  // 不重定向的路径：API、登录、登出、静态资源
-  if (p.startsWith('/api/') || p === '/api' || p === '/login' || p === '/logout') {
+  // 不参与设备路由的路径：API、静态资源（H5 静态文件 / vue.js / css / js 等）
+  const STATIC_PREFIX = ['/h5/', '/static/', '/css/', '/js/', '/vendor/', '/images/', '/fonts/'];
+  if (p.startsWith('/api/') || p === '/api' || p === '/logout' || STATIC_PREFIX.some(s => p.startsWith(s)) || p === '/vue.js' || p === '/axios.js') {
     req.isMobile = false; // API 不区分设备
     res.locals.isMobile = false;
     res.locals.currentPath = p;
@@ -214,8 +215,13 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // 显式切换 ?view=pc / ?view=mobile  → 写 cookie 后重定向到目标视图
+  // 手机访问 → 自动返回 H5 SPA（用户显式 ?view=pc 时仍看桌面版）
   const qView = req.query.view;
+  if (isMobileUA(req) && qView !== 'pc') {
+    return res.sendFile(path.join(__dirname, 'public/h5/index.html'));
+  }
+
+  // 显式切换 ?view=pc / ?view=mobile  → 写 cookie 后重定向到目标视图
   if (qView === 'pc' || qView === 'mobile') {
     res.cookie('view_pref', qView, { maxAge: 365*24*3600*1000, path: '/', sameSite: 'lax', httpOnly: false });
     if (qView === 'mobile') return res.redirect(PC_TO_MOBILE[p] || '/mobile');
