@@ -91,12 +91,12 @@ window.Pages.weekly_form = {
           </select>
           <!-- radio -->
           <label v-else-if="f.field_type === 'radio'" v-for="o in opts(f)" :key="o" class="opt">
-            <input type="radio" :name="'f' + f.id" :value="o" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" :disabled="viewMode"> {{o}}
+            <input type="radio" :name="'f' + f.id" :value="o" :checked="formData[f.id] === o" @change="formData[f.id] = o" :disabled="viewMode"> {{o}}
           </label>
           <!-- checkbox -->
           <span v-else-if="f.field_type === 'checkbox'">
             <label v-for="o in opts(f)" :key="o" class="opt">
-              <input type="checkbox" :value="o" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" :disabled="viewMode"> {{o}}
+              <input type="checkbox" :value="o" :checked="isChecked(f.id, o)" @change="toggleCheck(f.id, o)" :disabled="viewMode"> {{o}}
             </label>
           </span>
           <!-- photo / ai_recognition / file -->
@@ -272,6 +272,20 @@ window.Pages.weekly_form = {
     stepOn(i) {
       return i <= this.step;
     },
+    isChecked(fid, val) {
+      const arr = this.formData[fid];
+      return Array.isArray(arr) && arr.includes(val);
+    },
+    toggleCheck(fid, val) {
+      const arr = this.formData[fid];
+      if (!Array.isArray(arr)) {
+        this.formData[fid] = [val];
+      } else {
+        const idx = arr.indexOf(val);
+        if (idx >= 0) arr.splice(idx, 1);
+        else arr.push(val);
+      }
+   },
     locText(d) {
       return d.location || '';
     },
