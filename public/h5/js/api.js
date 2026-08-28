@@ -29,7 +29,7 @@
       throw new Error('NETWORK_ERROR');
     }
     if (res.status === 401) {
-      utils.toast('\u767b\u5f55\u5df2\u5931\u6548\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55');
+      // 401 仅清 token，不再弹 toast —— 路由层会自动跳回登录页，toast 是冗余信息
       Store.logout();
       throw new Error('UNAUTHORIZED');
     }
