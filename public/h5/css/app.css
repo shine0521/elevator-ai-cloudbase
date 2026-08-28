@@ -104,11 +104,17 @@ ul, li { list-style: none; margin: 0; padding: 0; }
 .app-tab.elevated { box-shadow: 0 -2px 8px rgba(0,0,0,.08); }
 .tab {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; color: var(--text-3); font-size: 10px; gap: 2px;
-  cursor: pointer; padding: 6px 0; text-decoration: none;
+  justify-content: center; color: var(--text-3); font-size: 11px; gap: 3px;
+  cursor: pointer; padding: 6px 0; text-decoration: none; min-width: 0;
+}
+.tab svg {
+  width: 22px; height: 22px; flex: 0 0 22px;
+  display: block; overflow: visible;
 }
 .tab .ti { font-size: 20px; line-height: 1; }
+.tab span { line-height: 1.2; }
 .tab.on { color: var(--primary); }
+.tab.on svg { stroke-width: 2.2; }
 
 /* === 页面根 === */
 .page { min-height: 100%; }
@@ -150,7 +156,7 @@ ul, li { list-style: none; margin: 0; padding: 0; }
   margin-right: 10px; font-size: 18px; flex-shrink: 0; background: var(--primary-light); color: var(--primary);
 }
 .list-item .li-body { flex: 1; min-width: 0; }
-.list-item .li-title { font-size: 15px; font-weight: 500; }
+.list-item .li-title { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-item .li-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-item .li-extra { margin-left: 8px; flex-shrink: 0; }
 .list-item .li-arrow { color: var(--text-3); font-size: 14px; }
