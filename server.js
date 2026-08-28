@@ -526,8 +526,8 @@ function secureCookieOpts(req, extra) {
   return Object.assign({ httpOnly: true, sameSite: 'lax', secure: !!isHttps }, extra || {});
 }
 
-// API 登录（带速率限制）
-app.post('/api/login', loginLimiter.middleware(), (req, res, next) => {
+// API 登录
+app.post('/api/login', (req, res, next) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return next(new ValidationError('请输入邮箱和密码'));
@@ -571,8 +571,8 @@ app.get('/login', (req, res) => {
   res.render('login', { title: '登录', error: '', user: null });
 });
 
-// 登录处理（带速率限制）
-app.post('/login', loginLimiter.middleware(), (req, res, next) => {
+// 登录处理
+app.post('/login', (req, res, next) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.render('login', { title: '登录', error: '请输入邮箱和密码', user: null });
