@@ -91,13 +91,72 @@
     getWorkOrders: function (params) { return this.get('/api/mobile/work-orders', params); },
     getWorkOrder: function (id) { return this.get('/api/mobile/work-orders/' + id); },
     submitRectify: function (id, data) { return this.post('/api/mobile/work-orders/' + id + '/rectify', data); },
+    // 验收（安全员）：POST /api/mobile/work-orders/:id/verify {verifyDescription, pass}
+    verifyWorkOrder: function (id, data) { return this.post('/api/mobile/work-orders/' + id + '/verify', data); },
+    submitVerify: function (id, data) { return this.post('/api/mobile/work-orders/' + id + '/verify', data); },
+
+    // ========== 应急 ==========
+    getEmergencies: function (params) { return this.get('/api/mobile/emergencies', params); },
+    getEmergency: function (id) { return this.get('/api/mobile/emergencies/' + id); },
+    createEmergency: function (data) { return this.post('/api/mobile/emergencies', data); },
+    updateEmergency: function (id, data) { return this.put('/api/mobile/emergencies/' + id, data); },
+    addRescueLog: function (id, data) { return this.post('/api/mobile/emergencies/' + id + '/logs', data); },
 
     // ========== 审批 ==========
     getApprovals: function (params) { return this.get('/api/mobile/approvals', params); },
     getApproval: function (id) { return this.get('/api/mobile/approvals/' + id); },
+    getApprovalStats: function () { return this.get('/api/mobile/approvals/stats'); },
     approve: function (id, data) { return this.post('/api/mobile/approvals/' + id + '/approve', data); },
     reject: function (id, data) { return this.post('/api/mobile/approvals/' + id + '/reject', data); },
-    forward: function (id, data) { return this.post('/api/mobile/approvals/' + id + '/forward', data); },
+    forward: function (id, data) { return this.post('/api/mobile/approvals/' + id + '/forward', data); }, // data:{forwardTo, comment}
+
+    // ========== 统计 ==========
+    getInspectionStats: function () { return this.get('/api/mobile/inspections/stats'); },
+    getWeeklyStats: function () { return this.get('/api/mobile/weekly/stats'); },
+    getMonthlyStats: function () { return this.get('/api/mobile/monthly/stats'); },
+    getHazardStats: function () { return this.get('/api/mobile/hazards/stats'); },
+    getEmergencyStats: function () { return this.get('/api/mobile/emergencies/stats'); },
+
+    // ========== AI 合规判别系统（需求文档 8 大模块） ==========
+    getTemplates: function (params) { return this.get('/api/templates', params); },
+    getTemplate: function (id) { return this.get('/api/templates/' + id); },
+    getTemplateFields: function (id) { return this.get('/api/templates/' + id + '/fields'); },
+    getTemplateRules: function (id) { return this.get('/api/templates/' + id + '/rules'); },
+    getTemplateVersions: function (id) { return this.get('/api/templates/' + id + '/versions'); },
+    discriminate: function (data) { return this.post('/api/discriminate', data); },
+    classifyAI: function (data) { return this.post('/api/ai/classify', data); },
+    extractAI: function (data) { return this.post('/api/ai/extract', data); },
+    analyzeAI: function (data) { return this.post('/api/ai/analyze', data); },
+    askAI: function (data) { return this.post('/api/ai/ask', data); },
+    getAIStatus: function () { return this.get('/api/ai/status'); },
+
+    // ========== 人工审核 / 判别历史 ==========
+    getAuditTasks: function (params) { return this.get('/api/audit-tasks', params); },
+    auditAction: function (id, data) { return this.post('/api/audit-tasks/' + id + '/action', data); },
+
+    // ========== 司法留痕（operation_logs 表） ==========
+    getLogs: function (params) { return this.get('/api/operation-logs', params); },
+    verifyLogSeal: function (data) { return this.post('/api/operation-logs/verify', data); },
+    exportLogs: function (data) { return this.post('/api/logs/export', data); },
+    getWormStatus: function () { return this.get('/api/logs/worm-status'); },
+    verifySeal: function (sealId) { return this.get('/api/logs/verify-seal/' + sealId); },
+
+    // ========== 判别历史（discrimination_records 表） ==========
+    getDiscriminationRecords: function (params) { return this.get('/api/discrimination-records', params); },
+    getDiscriminationRecord: function (id) { return this.get('/api/discrimination-records/' + id); },
+
+    // ========== 法规知识库 ==========
+    getRegulations: function (params) { return this.get('/api/regulations', params); },
+    getRegulation: function (id) { return this.get('/api/regulations/' + id); },
+    getRegulationClauses: function (id) { return this.get('/api/regulations/' + id + '/clauses'); },
+    getClauses: function (params) { return this.get('/api/clauses', params); },
+    getKnowledgeStats: function () { return this.get('/api/knowledge/stats'); },
+
+    // ========== 模板研究 ==========
+    getResearchTasks: function (params) { return this.get('/api/template-research', params); },
+    getResearchTask: function (id) { return this.get('/api/template-research/' + id); },
+    researchAISuggest: function (id) { return this.post('/api/template-research/' + id + '/ai-suggest', {}); },
+    researchPublish: function (id) { return this.put('/api/template-research/' + id + '/publish', {}); },
 
     // ========== 设备 ==========
     scanDevice: function (code) { return this.get('/api/mobile/devices/scan', { code: code }); },

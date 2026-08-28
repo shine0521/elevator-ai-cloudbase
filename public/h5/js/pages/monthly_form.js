@@ -1,448 +1,389 @@
-// pages/monthly_form.js — 月调度 M-19（新增）
-// 4步向导：选设备 → 选模板 → 逐项填写 → 提交
-// GET/POST/PUT /api/mobile/monthly | /api/mobile/monthly/:id/submit
-// 与 daily_form 相同架构，模板字段略有不同
-window.Pages = window.Pages || {};
-window.Pages.monthly_form = {
-  name: 'monthly_form',
-  props: ['query'],
-  template: `
-  <div class="page mf">
+// pages/monthly_form.js — 月调度纪要 M-19
+// 创建：POST /api/mobile/monthly {dispatchMonth,hostId,hostName,overview,topics,summary}
+// 更新：PUT /api/mobile/monthly/:id {attendees,meetingPhotos,summary,status}
+// 选设备/月份 → 议题（topics JSON 数组，可增删）、参会人（attendees JSON）、纪要 summary
+// query.id 存在则编辑模式
+(function () {
+  window.Pages = window.Pages || {};
 
-    <!-- 步骤条 -->
-    <div class="step-bar">
-      <div v-for="(s, i) in steps" :key="s" class="step-chip"
-        :class="{on: i === step, done: i < step}">
-        <div class="snum">{{i + 1}}</div>
-        {{s}}
-      </div>
-    </div>
+  window.Pages.monthly_form = {
+    name: 'monthly_form',
+    props: ['query'],
 
-    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+    data: function () {
+      var now = new Date();
+      var pad = function (n) { return String(n).padStart(2, '0'); };
+      var defMonth = now.getFullYear() + '-' + pad(now.getMonth() + 1);
+      var user = (Store && Store.getUser) ? (Store.getUser() || {}) : {};
+      return {
+        loading: true,
+        submitting: false,
+        editId: null,
+        viewMode: false,
 
-    <template v-else>
-      <!-- STEP 0: 选设备 + 月份 -->
-      <div v-if="step === 0" class="card">
-        <div class="month-note">月调度月份：{{form.monthLabel}}</div>
-        <div class="fi-label">选择设备 <span class="req">*</span></div>
-        <input v-model="deviceSearch" class="fi-input" placeholder="搜索设备名称 / 编号" style="margin-bottom:10px">
-        <div style="max-height:44vh;overflow-y:auto">
-          <div v-for="d in filteredDevices" :key="d.id"
-            class="dev-item" :class="{on: form.deviceId === d.id}"
-            @click="form.deviceId = d.id">
-            <div class="dev-name">{{d.device_name || d.deviceName || ''}} <span class="muted">{{d.device_code || d.deviceCode || ''}}</span></div>
-            <div class="muted" style="font-size:12px">{{d.location || ''}} {{d.device_type || d.deviceType || ''}}</div>
-          </div>
-          <div v-if="!filteredDevices.length" class="empty-state"><span class="muted">暂无设备</span></div>
-        </div>
-        <button class="btn-primary" @click="next" style="margin-top:12px">下一步：选择模板</button>
-      </div>
+        // 设备搜索
+        deviceKeyword: '',
+        deviceList: [],
+        deviceLoading: false,
 
-      <!-- STEP 1: 选模板 -->
-      <div v-if="step === 1" class="card">
-        <div class="fi-label">月调度模板（已发布）<span class="req">*</span></div>
-        <input v-model="templateSearch" class="fi-input" placeholder="搜索模板名称" style="margin-bottom:10px">
-        <div style="max-height:40vh;overflow-y:auto">
-          <div v-for="t in filteredTemplates" :key="t.id"
-            class="dev-item" :class="{on: form.templateId === t.id}"
-            @click="selectTemplate(t)">
-            <div class="dev-name">{{t.name || ''}} <span class="muted">v{{t.version || 1}}</span></div>
-            <div class="muted" style="font-size:12px">{{t.category || '通用'}} {{t.description || ''}}</div>
-          </div>
-          <div v-if="!filteredTemplates.length" class="empty-state"><span class="muted">暂无月调度模板</span></div>
-        </div>
-        <div class="btn-row">
-          <button class="btn-ghost" @click="prev">上一步</button>
-          <button class="btn-primary" @click="next">下一步：逐项填写</button>
-        </div>
-      </div>
+        // 表单
+        dispatchMonth: defMonth,
+        hostId: user.id || '',
+        hostName: user.name || user.username || '',
+        selectedDevice: null,
 
-      <!-- STEP 2: 逐项填写 -->
-      <div v-if="step === 2">
-        <div v-if="isReadonly" class="card" style="margin-bottom:10px"><span class="view-badge">该月调度已提交，当前为只读查看</span></div>
-        <div v-for="(f, idx) in fields" :key="f.id" class="card">
-          <div class="fi-label">{{idx + 1}}. {{f.field_label || f.field_name || '检查项'}}<span class="req" v-if="f.required">*</span></div>
+        // 议题数组（每项 {text}）
+        topics: [],
 
-          <input v-if="isTextOrNumber(f)" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
-            class="fi-input"
-            :type="f.field_type === 'number' ? 'number' : 'text'"
-            :disabled="isReadonly" :placeholder="f.placeholder || '请输入'">
+        // 参会人数组（每项 {name}）
+        attendees: [],
 
-          <textarea v-else-if="f.field_type === 'textarea'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
-            class="fi-input" :disabled="isReadonly" :placeholder="f.placeholder || '请输入'"
-            style="min-height:70px"></textarea>
+        // 议题/参会人输入
+        topicInput: '',
+        attendeeInput: '',
 
-          <input v-else-if="f.field_type === 'date'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
-            class="fi-input" type="date" :disabled="isReadonly">
+        // 概述/纪要
+        overview: '',
+        summary: ''
+      };
+    },
 
-          <select v-else-if="f.field_type === 'select'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
-            class="fi-input" :disabled="isReadonly">
-            <option value="">请选择</option>
-            <option v-for="o in parseOpts(f)" :key="o" :value="o">{{o}}</option>
-          </select>
+    computed: {
+      isEdit: function () { return !!this.editId; },
+      isCreate: function () { return !this.editId; },
 
-          <div v-else-if="f.field_type === 'radio'" class="opt-row">
-            <label v-for="o in parseOpts(f)" :key="o" class="opt-chip"
-              :class="{on: formData[f.id] === o}">
-              <input type="radio" :name="'f' + f.id" :value="o" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value" :disabled="isReadonly">
-              {{o}}
-            </label>
-          </div>
+      canSubmit: function () {
+        return this.dispatchMonth.trim().length > 0 &&
+               this.hostName.trim().length > 0 &&
+               !this.submitting;
+      },
 
-          <div v-else-if="f.field_type === 'checkbox'" class="opt-row">
-            <label v-for="o in parseOpts(f)" :key="o" class="opt-chip"
-              :class="{on: isChecked(f.id, o)}">
-              <input type="checkbox" :value="o" :disabled="isReadonly" @change="toggleCheck(f.id, o)">
-              {{o}}
-            </label>
-          </div>
+      topicsCount: function () { return this.topics.length; },
+      attendeesCount: function () { return this.attendees.length; },
+      topicsEmpty: function () { return this.topics.length === 0 && !this.viewMode; },
+      attendeesEmpty: function () { return this.attendees.length === 0 && !this.viewMode; }
+    },
 
-          <div v-else-if="isPhotoType(f)">
-            <div v-if="formData[f.id]" class="muted" style="font-size:13px;margin-bottom:6px">📎 {{formData[f.id]}}</div>
-            <button v-if="notReadonly" class="btn-ghost" @click="pickFile(f)">
-              {{formData[f.id] ? '重新选择' : (f.field_type === 'file' ? '选择文件' : '📷 上传')}}
-            </button>
-          </div>
-
-          <div v-else-if="f.field_type === 'signature'" :value="formData[f.id]" @input="v => formData[f.id] = v.target.value"
-            class="fi-input" :disabled="isReadonly" placeholder="请输入签名人姓名">签名人姓名</div>
-
-          <div v-else class="fi-readonly">{{formData[f.id] || f.default_value || '—'}}</div>
-
-          <div v-if="f.help_text" class="fi-help">{{f.help_text}}</div>
-        </div>
-        <div v-if="notFields" class="card muted" style="text-align:center">该模板暂无填写项</div>
-
-        <div class="btn-row" v-if="notReadonly">
-          <button class="btn-ghost" @click="prev">上一步</button>
-          <button class="btn-primary" @click="next">下一步：提交</button>
-        </div>
-        <div class="btn-row" v-else>
-          <button class="btn-ghost" @click="goList">返回列表</button>
-        </div>
-      </div>
-
-      <!-- STEP 3: 提交确认 -->
-      <div v-if="step === 3" class="card">
-        <div v-if="isReadonly" class="center muted" style="padding:20px">该月调度已提交，无需重复操作</div>
-        <template v-else>
-          <div class="fi-label" style="margin-bottom:10px">确认提交</div>
-          <div class="sum-line">设备：{{devDisplay}}</div>
-          <div class="sum-line">月份：{{form.monthLabel}}</div>
-          <div class="sum-line">模板：{{tplDisplay}}</div>
-          <div class="sum-line">填写项：{{statsTotal}} 项（已填 {{statsPass}} / 未填 {{statsFail}}）</div>
-          <div v-if="statsFail > 0" class="warn-tip">⚠ 有 {{statsFail}} 项未填写</div>
-          <button class="btn-primary" style="margin-top:16px" @click="submit" :disabled="submitting">
-            {{submitting ? '提交中...' : '确认提交'}}
-          </button>
-        </template>
-        <button class="btn-ghost" style="margin-top:8px" @click="goList">返回列表</button>
-      </div>
-    </template>
-  </div>
-  `,
-  data() {
-    return {
-      step: 0,
-      steps: ['选设备', '选模板', '逐项填写', '提交'],
-      loading: true,
-      submitting: false,
-      editId: null,
-      viewMode: false,
-      devices: [],
-      templates: [],
-      fields: [],
-      deviceSearch: '',
-      templateSearch: '',
-      form: { deviceId: '', templateId: '', templateVersion: 1, monthLabel: '' },
-      formData: {}
-    };
-  },
-  computed: {
-    filteredDevices() {
-      var q = (this.deviceSearch || '').trim().toLowerCase();
-      if (!q) return this.devices;
+    mounted: function () {
       var self = this;
-      return this.devices.filter(function(d) {
-        return contains(d.device_name, q) || contains(d.deviceName, q) ||
-               contains(d.device_code, q) || contains(d.deviceCode, q) ||
-               contains(d.location, q);
-      });
+      var id = this.query && this.query.id;
+      if (id) {
+        self.editId = id;
+        self.loadDetail();
+      } else {
+        self.loading = false;
+      }
     },
-    filteredTemplates() {
-      var q = (this.templateSearch || '').trim().toLowerCase();
-      if (!q) return this.templates;
-      var self = this;
-      return this.templates.filter(function(t) {
-        return contains(t.name, q) || contains(t.code, q);
-      });
-    },
-    selectedDevice() {
-      var id = this.form.deviceId;
-      var self = this;
-      return this.devices.find(function(d) { return String(d.id) === String(id); }) || null;
-    },
-    selectedTemplate() {
-      var id = this.form.templateId;
-      var self = this;
-      return this.templates.find(function(t) { return String(t.id) === String(id); }) || null;
-    },
-    devDisplay() {
-      var d = this.selectedDevice;
-      return d ? ((d.device_name || d.deviceName || '') + ' ' + (d.device_code || d.deviceCode || '')).trim() : String(this.form.deviceId || '');
-    },
-    tplDisplay() {
-      var t = this.selectedTemplate;
-      return t ? (t.name || '') : String(this.form.templateId || '');
-    },
-    isReadonly() { return this.viewMode; },
-    notReadonly() { return !this.viewMode; },
-    notFields() { return !this.fields.length; },
-    statsTotal() { return this.fields.length; },
-    statsPass() {
-      var self = this;
-      var pass = 0;
-      this.fields.forEach(function(f) {
-        if (self.isRoField(f)) return;
-        if (!f.required || !self.isEmpty(self.formData[f.id])) pass++;
-      });
-      return pass;
-    },
-    statsFail() { return this.statsTotal - this.statsPass; }
-  },
-  mounted: function() {
-    this.initMonthLabel();
-    this.editId = this.query.id || null;
-    this.loadDevices();
-    this.loadTemplates();
-    if (this.editId) {
-      this.loadDetail(this.editId);
-    } else {
-      this.loading = false;
-    }
-  },
-  watch: {
-    'query.id': {
-      handler: function(nv) {
+
+    watch: {
+      'query.id': function (nv) {
         var id = nv || null;
         if (String(id || '') !== String(this.editId || '')) {
           this.editId = id;
           this.reset();
-          if (id) this.loadDetail(id);
-        }
-      }
-    }
-  },
-  methods: {
-    initMonthLabel: function() {
-      var d = new Date();
-      var p = function(n) { return String(n).padStart(2, '0'); };
-      this.form.monthLabel = d.getFullYear() + '年' + p(d.getMonth() + 1) + '月';
-    },
-    async loadDevices() {
-      try {
-        var d = await api.get('/api/devices', { page: 1, size: 200 });
-        this.devices = d.data || [];
-      } catch (e) {
-        if (!this._gone) utils.toast((e && e.message) || '设备列表加载失败');
-      }
-    },
-    async loadTemplates() {
-      try {
-        var d = await api.get('/api/templates', { status: 'published', category: 'monthly', page: 1, size: 200 });
-        this.templates = d.data || [];
-      } catch (e) {
-        try {
-          var d2 = await api.get('/api/templates', { status: 'published', page: 1, size: 200 });
-          this.templates = (d2.data || []).filter(function(t) {
-            return t.category === 'monthly';
-          });
-        } catch(e2) {
-          if (!this._gone) utils.toast((e && e.message) || '模板列表加载失败');
+          if (id) this.loadDetail();
+          else this.loading = false;
         }
       }
     },
-    async selectTemplate(t) {
-      this.form.templateId = t.id;
-      this.form.templateVersion = t.version || 1;
-      try {
-        var d = await api.get('/api/templates/' + t.id);
-        this.fields = d.fields || [];
-        this.initFormData();
-      } catch (e) {
-        if (!this._gone) utils.toast((e && e.message) || '模板字段加载失败');
-      }
-    },
-    initFormData: function() {
-      var fd = {};
-      var self = this;
-      this.fields.forEach(function(f) {
-        fd[f.id] = f.field_type === 'checkbox' ? [] : (f.default_value || f.defaultValue || '');
-      });
-      this.formData = fd;
-    },
-    async loadDetail(id) {
-      var self = this;
-      this.loading = true;
-      try {
-        var d = await api.get('/api/mobile/monthly/' + id);
-        this.form.deviceId = d.device_id != null ? String(d.device_id) : '';
-        this.form.monthLabel = d.month_label || d.monthLabel || this.form.monthLabel;
-        this.form.templateId = d.template_id || '';
-        this.form.templateVersion = d.template_version || d.templateVersion || 1;
-        var ro = ['submitted', 'reviewed', 'closed', 'completed'];
-        this.viewMode = ro.indexOf(d.status) >= 0;
-        if (d.template_id) {
-          try {
-            var t = await api.get('/api/templates/' + d.template_id);
-            this.fields = t.fields || [];
-            this.initFormData();
-          } catch(e) {}
-        }
-        if (d.items && d.items.length) {
-          var self2 = this;
-          d.items.forEach(function(it) {
-            if (!it.field_id) return;
-            var f = self2.fields.find(function(x) { return String(x.id) === String(it.field_id); });
-            if (!f) return;
-            var v = it.input_value;
-            if (f.field_type === 'checkbox') self2.formData[f.id] = v ? String(v).split(',') : [];
-            else self2.formData[f.id] = v == null ? '' : String(v);
-          });
-        }
-        this.step = 2;
-      } catch (e) {
-        if (!this._gone) utils.toast((e && e.message) || '加载失败');
-      } finally {
-        if (!this._gone) this.loading = false;
-      }
-    },
-    reset: function() {
-      this.step = 0;
-      this.viewMode = false;
-      this.fields = [];
-      this.formData = {};
-      this.form = { deviceId: '', templateId: '', templateVersion: 1, monthLabel: this.form.monthLabel };
-      this.loading = false;
-    },
-    parseOpts: function(f) {
-      var o = f.options;
-      if (Array.isArray(o)) return o;
-      if (o == null || o === '') return [];
-      return String(o).split(/[|,，;；、]/).map(function(s) { return s.trim(); }).filter(Boolean);
-    },
-    isTextOrNumber: function(f) { return f.field_type === 'text' || f.field_type === 'number'; },
-    isPhotoType: function(f) { return f.field_type === 'photo' || f.field_type === 'ai_recognition' || f.field_type === 'file'; },
-    isRoField: function(f) { return f.field_type === 'sensor_data' || f.field_type === 'computed'; },
-    isEmpty: function(v) {
-      if (Array.isArray(v)) return !v.length;
-      return v == null || String(v).trim() === '';
-    },
-    isChecked: function(fieldId, val) {
-      var arr = this.formData[fieldId];
-      return Array.isArray(arr) && arr.indexOf(val) >= 0;
-    },
-    toggleCheck: function(fieldId, val) {
-      var arr = this.formData[fieldId];
-      if (!Array.isArray(arr)) arr = [];
-      var idx = arr.indexOf(val);
-      if (idx >= 0) arr.splice(idx, 1); else arr.push(val);
-      this.formData[fieldId] = arr;
-    },
-    pickFile: function(f) {
-      var self = this;
-      var input = document.createElement('input');
-      input.type = 'file';
-      input.accept = f.field_type === 'file' ? '*/*' : 'image/*';
-      input.onchange = function() {
-        var file = input.files && input.files[0];
-        if (file) self.formData[f.id] = file.name;
-      };
-      input.click();
-    },
-    next: function() {
-      if (this.step === 0) {
-        if (!this.form.deviceId) { utils.toast('请选择设备'); return; }
-      }
-      if (this.step === 1) {
-        if (!this.form.templateId) { utils.toast('请选择月调度模板'); return; }
-        if (!this.fields.length) { utils.toast('该模板暂无填写项'); return; }
-      }
-      if (this.step === 2 && !this.validateFields()) return;
-      if (this.step < 3) this.step++;
-    },
-    prev: function() {
-      if (this.step > 0) this.step--;
-    },
-    validateFields: function() {
-      var skip = { sensor_data: 1, computed: 1 };
-      var self = this;
-      for (var i = 0; i < this.fields.length; i++) {
-        var f = this.fields[i];
-        if (skip[f.field_type] || !f.required) continue;
-        if (this.isEmpty(this.formData[f.id])) {
-          utils.toast('请填写：' + (f.field_label || f.field_name));
-          return false;
-        }
-      }
-      return true;
-    },
-    buildItems: function() {
-      var self = this;
-      return this.fields.map(function(f, idx) {
-        var val = self.formData[f.id];
-        var type = f.field_type;
-        var inputValue = Array.isArray(val) ? val.join(',') : (val == null ? '' : String(val));
-        var compareResult = 'pass';
-        if (!self.isRoField(f) && f.required && self.isEmpty(val)) compareResult = 'fail';
-        return {
-          fieldId: f.id,
-          itemSeq: f.sort_order != null ? f.sort_order : (idx + 1),
-          itemName: f.field_label || f.field_name,
-          itemType: type,
-          inputValue: inputValue,
-          compareResult: compareResult
-        };
-      });
-    },
-    async submit() {
-      this.submitting = true;
-      var self = this;
-      try {
-        var id = this.editId;
-        if (!id) {
-          var created = await api.post('/api/mobile/monthly', {
-            deviceId: parseInt(this.form.deviceId) || 0,
-            monthLabel: this.form.monthLabel,
-            templateId: parseInt(this.form.templateId) || 0,
-            templateVersion: parseInt(this.form.templateVersion) || 1
-          });
-          id = created.id;
-          if (!id) throw new Error('创建失败，未获取到 ID');
-        } else {
-          await api.put('/api/mobile/monthly/' + id, {
-            deviceId: parseInt(this.form.deviceId) || 0,
-            templateId: parseInt(this.form.templateId) || 0
-          });
-        }
-        var items = this.buildItems();
-        if (items.length) {
-          await api.post('/api/mobile/monthly/' + id + '/items', { items: items });
-        }
-        await api.post('/api/mobile/monthly/' + id + '/submit', {});
-        utils.toast('提交成功');
-        setTimeout(function() { utils.go('/monthly'); }, 900);
-      } catch (e) {
-        if (!this._gone) utils.toast((e && e.message) || '提交失败');
-        this.submitting = false;
-      }
-    },
-    goList: function() { utils.go('/monthly'); }
-  },
-  unmounted: function() { this._gone = true; }
-};
 
-function contains(str, sub) {
-  str = str || '';
-  return str.toLowerCase().indexOf(sub) >= 0;
-}
+    methods: {
+      reset: function () {
+        var now = new Date();
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        var user = (Store && Store.getUser) ? (Store.getUser() || {}) : {};
+        this.dispatchMonth = now.getFullYear() + '-' + pad(now.getMonth() + 1);
+        this.hostId = user.id || '';
+        this.hostName = user.name || user.username || '';
+        this.selectedDevice = null;
+        this.topics = [];
+        this.attendees = [];
+        this.overview = '';
+        this.summary = '';
+        this.deviceList = [];
+        this.viewMode = false;
+      },
+
+      // === 设备搜索 ===
+      searchDevice: function () {
+        var self = this;
+        self.deviceLoading = true;
+        api.get('/api/devices', { search: self.deviceKeyword, page: 1, size: 50 })
+          .then(function (d) { self.deviceList = (d && d.data) || d || []; })
+          .catch(function () { self.deviceList = []; })
+          .finally(function () { self.deviceLoading = false; });
+      },
+
+      selectDevice: function (dev) {
+        this.selectedDevice = dev;
+        this.deviceList = [];
+      },
+
+      clearDevice: function () {
+        this.selectedDevice = null;
+      },
+
+      // === 议题增删 ===
+      addTopic: function () {
+        var t = this.topicInput.trim();
+        if (!t) { utils.toast('请输入议题内容'); return; }
+        this.topics.push({ text: t });
+        this.topicInput = '';
+      },
+
+      removeTopic: function (idx) {
+        this.topics.splice(idx, 1);
+      },
+
+      // === 参会人增删 ===
+      addAttendee: function () {
+        var t = this.attendeeInput.trim();
+        if (!t) { utils.toast('请输入参会人姓名'); return; }
+        this.attendees.push({ name: t });
+        this.attendeeInput = '';
+      },
+
+      removeAttendee: function (idx) {
+        this.attendees.splice(idx, 1);
+      },
+
+      // === 加载详情 ===
+      loadDetail: function () {
+        var self = this;
+        self.loading = true;
+        api.getMonthlyDetail(self.editId).then(function (d) {
+          var data = d.data || d;
+          self.dispatchMonth = data.dispatch_month || data.dispatchMonth || self.dispatchMonth;
+          self.hostId = data.host_id || data.hostId || '';
+          self.hostName = data.host_name || data.hostName || '';
+          if (data.device_id) {
+            self.selectedDevice = {
+              id: data.device_id,
+              device_name: data.device_name,
+              device_code: data.device_code
+            };
+          }
+
+          // topics 解析
+          var t = data.topics;
+          if (typeof t === 'string' && t.trim()) {
+            try { t = JSON.parse(t); } catch (e) {}
+          }
+          self.topics = Array.isArray(t) ? t.map(function (s) { return { text: String(s) }; }) : [];
+
+          // attendees 解析
+          var a = data.attendees;
+          if (typeof a === 'string' && a.trim()) {
+            try { a = JSON.parse(a); } catch (e) {}
+          }
+          self.attendees = Array.isArray(a) ? a.map(function (s) { return { name: String(s) }; }) : [];
+
+          // overview 解析
+          var o = data.overview;
+          if (typeof o === 'string' && o.trim()) {
+            try { o = JSON.parse(o); } catch (e) {}
+          }
+          if (typeof o === 'object' && o !== null) {
+            self.overview = [
+              o.checkCount != null ? '本月检查 ' + o.checkCount + ' 次' : '',
+              o.hazardCount != null ? '隐患 ' + o.hazardCount + ' 项' : '',
+              o.rectifyRate != null ? '整改率 ' + o.rectifyRate + '%' : '',
+              o.accidentCount != null ? '事故 ' + o.accidentCount + ' 次' : ''
+            ].filter(Boolean).join('；');
+          } else {
+            self.overview = typeof o === 'string' ? o : '';
+          }
+
+          self.summary = data.summary || '';
+
+          // 只读：completed 已完成状态
+          self.viewMode = String(data.status || '').toLowerCase() === 'completed';
+          self.loading = false;
+        }).catch(function () {
+          self.loading = false;
+          utils.toast('加载失败');
+        });
+      },
+
+      // === 提交 ===
+      doSubmit: function () {
+        var self = this;
+        if (self.submitting) return;
+        if (!self.canSubmit) return;
+
+        self.submitting = true;
+
+        var topicsArr = self.topics.map(function (t) { return t.text; });
+        var attendeesArr = self.attendees.map(function (a) { return a.name; });
+
+        if (self.isCreate) {
+          // 概述 JSON（前端生成摘要）
+          var overviewObj = null;
+          if (self.overview.trim()) {
+            overviewObj = { summary: self.overview };
+          }
+
+          api.createMonthly({
+            dispatchMonth: self.dispatchMonth,
+            hostId: self.hostId || null,
+            hostName: self.hostName,
+            overview: overviewObj,
+            topics: topicsArr,
+            summary: self.summary
+          }).then(function (res) {
+            var id = res.id || (res.data && res.data.id);
+            if (!id) throw new Error('创建失败');
+            utils.toast('创建成功');
+            setTimeout(function () { utils.go('/monthly_form?id=' + id); }, 900);
+          }).catch(function (e) {
+            self.submitting = false;
+            utils.toast((e && e.message) || '创建失败');
+          });
+        } else {
+          // 更新
+          api.submitMonthly(self.editId, {
+            attendees: attendeesArr,
+            summary: self.summary,
+            status: 'completed'
+          }).then(function () {
+            utils.toast('提交成功');
+            setTimeout(function () { utils.go('/monthly'); }, 900);
+          }).catch(function (e) {
+            self.submitting = false;
+            utils.toast((e && e.message) || '提交失败');
+          });
+        }
+      },
+
+      goBack: function () { utils.go('/monthly'); }
+    },
+
+    unmounted: function () { this._gone = true; },
+
+    template: [
+      '<div class="page">',
+
+        // ===== 加载态 =====
+        '<div v-if="loading" style="text-align:center;padding:40px 0">',
+          '<div style="font-size:36px">⏳</div>',
+          '<div style="color:var(--text-3);margin-top:8px">加载中...</div>',
+        '</div>',
+
+        '<template v-else>',
+
+          // ===== 只读提示 =====
+          '<div v-if="viewMode" class="card" style="margin-bottom:12px">',
+            '<span class="tag tag-info">该月调度已提交完成，当前为只读查看</span>',
+          '</div>',
+
+          // ===== 基本信息 =====
+          '<div class="card" style="margin-bottom:12px">',
+            '<div class="card-h"><div class="card-t">📆 调度信息</div></div>',
+
+            '<div class="form-item">',
+              '<div class="form-label">调度月份 <span class="req">*</span></div>',
+              '<input type="month" :value="dispatchMonth" @input="e=>dispatchMonth = e.target.value" class="fi-input" :disabled="viewMode || isEdit">',
+            '</div>',
+
+            '<div class="form-item">',
+              '<div class="form-label">主持人 <span class="req">*</span></div>',
+              '<input v-model="hostName" class="fi-input" placeholder="请输入主持人姓名" :disabled="viewMode">',
+            '</div>',
+
+            // 设备搜索
+            '<div class="form-item">',
+              '<div class="form-label">关联设备（可选）</div>',
+              '<div style="display:flex;gap:8px;margin-bottom:8px" v-if="!viewMode">',
+                '<input v-model="deviceKeyword" class="fi-input" style="flex:1" placeholder="搜索设备名称/编号" @keyup.enter="searchDevice">',
+                '<button class="btn-ghost" style="width:auto;padding:0 12px;flex:none" @click="searchDevice">搜索</button>',
+              '</div>',
+              '<div v-if="selectedDevice" style="background:#f0f9eb;border:1px solid #c2e7b0;border-radius:8px;padding:10px 12px;margin-bottom:6px">',
+                '<div style="font-size:13px;font-weight:600">✅ {{selectedDevice.device_name}}</div>',
+                '<div style="font-size:12px;color:var(--text-3)">{{selectedDevice.device_code}}</div>',
+                '<button v-if="!viewMode" class="btn-ghost btn-sm" style="margin-top:6px;width:auto;display:inline-block;padding:4px 12px" @click="clearDevice">清除</button>',
+              '</div>',
+              '<div v-if="deviceLoading" style="text-align:center;padding:8px;color:var(--text-3)">搜索中...</div>',
+              '<div v-for="dev in deviceList" :key="dev.id" class="list-item" style="padding:8px 12px;border:1px solid var(--border-light);border-radius:6px;margin-bottom:4px;cursor:pointer" @click="selectDevice(dev)">',
+                '<div style="font-size:12px;font-weight:500">{{dev.device_name}}</div>',
+                '<div style="font-size:11px;color:var(--text-3)">{{dev.device_code}} · {{dev.location}}</div>',
+              '</div>',
+            '</div>',
+          '</div>',
+
+          // ===== 议题 =====
+          '<div class="card" style="margin-bottom:12px">',
+            '<div class="card-h">',
+              '<div class="card-t">📝 会议议题 <span style="color:var(--text-3);font-weight:400">({{topicsCount}})</span></div>',
+            '</div>',
+
+            // 已有议题
+            '<div v-for="(t,i) in topics" :key="i" style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-light)">',
+              '<div style="flex:1;font-size:13px;line-height:1.5">{{i+1}}. {{t.text}}</div>',
+              '<button v-if="!viewMode" class="btn-ghost btn-sm" style="width:auto;padding:2px 10px;flex:none;font-size:12px" @click="removeTopic(i)">✖</button>',
+            '</div>',
+
+            // 添加议题
+            '<div v-if="!viewMode" style="display:flex;gap:8px;margin-top:10px">',
+              '<input v-model="topicInput" class="fi-input" style="flex:1" placeholder="输入议题，按回车添加" @keyup.enter="addTopic">',
+              '<button class="btn-primary" style="width:auto;padding:0 14px;flex:none" @click="addTopic">+</button>',
+            '</div>',
+
+            '<div v-if="topicsEmpty" style="color:var(--text-3);font-size:12px;padding:6px 0">暂无议题，请添加</div>',
+          '</div>',
+
+          // ===== 参会人 =====
+          '<div class="card" style="margin-bottom:12px">',
+            '<div class="card-h">',
+              '<div class="card-t">👥 参会人员 <span style="color:var(--text-3);font-weight:400">({{attendeesCount}})</span></div>',
+            '</div>',
+
+            // 已有参会人
+            '<div v-for="(a,i) in attendees" :key="i" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light)">',
+              '<span style="font-size:20px">👤</span>',
+              '<div style="flex:1;font-size:13px">{{a.name}}</div>',
+              '<button v-if="!viewMode" class="btn-ghost btn-sm" style="width:auto;padding:2px 10px;flex:none;font-size:12px" @click="removeAttendee(i)">✖</button>',
+            '</div>',
+
+            // 添加参会人
+            '<div v-if="!viewMode" style="display:flex;gap:8px;margin-top:10px">',
+              '<input v-model="attendeeInput" class="fi-input" style="flex:1" placeholder="输入姓名，按回车添加" @keyup.enter="addAttendee">',
+              '<button class="btn-primary" style="width:auto;padding:0 14px;flex:none" @click="addAttendee">+</button>',
+            '</div>',
+
+            '<div v-if="attendeesEmpty" style="color:var(--text-3);font-size:12px;padding:6px 0">暂无参会人，请添加</div>',
+          '</div>',
+
+          // ===== 概述 =====
+          '<div class="card" style="margin-bottom:12px">',
+            '<div class="card-h"><div class="card-t">📊 月度概述</div></div>',
+            '<div class="form-item">',
+              '<div class="form-label">概述（本月检查/隐患/整改情况摘要）</div>',
+              '<textarea v-model="overview" class="fi-input" style="min-height:70px;resize:vertical" :disabled="viewMode" placeholder="例如：本月共完成日管控检查 12 次，发现隐患 3 项，整改率 100%，无安全事故。"></textarea>',
+            '</div>',
+          '</div>',
+
+          // ===== 会议纪要 =====
+          '<div class="card" style="margin-bottom:12px">',
+            '<div class="card-h"><div class="card-t">📜 会议纪要</div></div>',
+            '<div class="form-item">',
+              '<div class="form-label">详细记录</div>',
+              '<textarea v-model="summary" class="fi-input" style="min-height:120px;resize:vertical" :disabled="viewMode" placeholder="请输入本次月调度会议详细纪要内容..."></textarea>',
+            '</div>',
+          '</div>',
+
+          // ===== 操作按钮 =====
+          '<div style="padding:0 0 24px">',
+            '<div class="btn-row">',
+              '<button class="btn-ghost" @click="goBack">返回</button>',
+              '<button v-if="!viewMode" class="btn-primary" @click="doSubmit" :disabled="!canSubmit || submitting">',
+                '{{submitting ? (isCreate ? "创建中..." : "提交中...") : (isCreate ? "创建月调度" : "提交完成")}}',
+              '</button>',
+            '</div>',
+          '</div>',
+
+        '</template>',
+
+      '</div>'
+    ].join('')
+  };
+})();

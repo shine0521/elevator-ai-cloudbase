@@ -1,201 +1,651 @@
-// 日管控填报
-window.Pages.daily_form = {
-  name: 'daily_form',
-  props: ['query'],
-  data: function () {
-    return {
-      deviceKeyword: '',
-      deviceList: [],
-      selectedDevice: null,
-      loadingDevice: false,
-      loading: false,
-      submitting: false,
-      signature: '',
-      editId: null,
-      // 内置标准日管控检查项（后端无模板字段 API，前端内置）
-      checklist: [
-        { seq: 1, name: '轿厢照明/风扇/按钮', category: '轿厢', type: 'radio', options: ['正常', '异常'] },
-        { seq: 2, name: '层门与轿门开关', category: '层门', type: 'radio', options: ['正常', '异常'] },
-        { seq: 3, name: '平层准确度', category: '运行', type: 'select', options: ['±5mm内', '±10mm内', '超差'] },
-        { seq: 4, name: '运行异响/振动', category: '运行', type: 'radio', options: ['正常', '异常'] },
-        { seq: 5, name: '楼层显示与报站', category: '轿厢', type: 'radio', options: ['正常', '异常'] },
-        { seq: 6, name: '制动器状态', category: '机房', type: 'radio', options: ['正常', '异常'] },
-        { seq: 7, name: '钢丝绳/曳引绳', category: '机房', type: 'radio', options: ['正常', '异常'] },
-        { seq: 8, name: '安全钳/限速器', category: '机房', type: 'radio', options: ['正常', '异常'] },
-        { seq: 9, name: '底坑积水/杂物', category: '底坑', type: 'radio', options: ['正常', '异常'] },
-        { seq: 10, name: '备注说明', category: '其他', type: 'textarea' }
-      ],
-      formData: {}
-    };
-  },
-  computed: {
-    canSubmit: function () {
-      return !!this.selectedDevice && !!this.signature && !this.submitting;
-    }
-  },
-  methods: {
-    searchDevice: function () {
+// pages/daily_form.js — 日管控执行 M-07（4 步向导：选设备 → 选模板 → 逐项检查 → 提交签名）
+// 创建：POST /api/mobile/inspections {deviceId, checkDate, templateId}
+// 提交项：POST /api/mobile/inspections/:id/items {items:[...]}
+// 提交：POST /api/mobile/inspections/:id/submit {signature}
+// query.id 存在则编辑模式（加载已有检查项）
+(function () {
+  window.Pages = window.Pages || {};
+
+  window.Pages.daily_form = {
+    name: 'daily_form',
+    props: ['query'],
+
+    data: function () {
+      return {
+        step: 0,
+        steps: ['选设备', '选模板', '逐项检查', '提交签名'],
+        loading: true,
+        submitting: false,
+        editId: null,
+        viewMode: false,
+
+        // 设备搜索
+        deviceKeyword: '',
+        deviceList: [],
+        deviceLoading: false,
+
+        // 模板搜索
+        templateKeyword: '',
+        templateList: [],
+        templateLoading: false,
+
+        // 选中
+        selectedDevice: null,
+        selectedTemplate: null,
+        fields: [],
+
+        // 检查日期（默认今天）
+        checkDate: (function () {
+          var d = new Date();
+          var p = function (n) { return String(n).padStart(2, '0'); };
+          return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+        })(),
+
+        // 动态表单数据（key = f.id）
+        formData: {},
+
+        // 签名
+        signature: '',
+
+        // 内置日管控检查项（当模板无字段时使用）
+        builtInFields: [
+          { id: 'bi_1',  field_name: '轿厢照明/风扇/按钮', field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 1 },
+          { id: 'bi_2',  field_name: '层门与轿门开关',    field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 2 },
+          { id: 'bi_3',  field_name: '平层准确度',        field_type: 'select',  options: ['±5mm内', '±10mm内', '超差'],   required: true, sort_order: 3 },
+          { id: 'bi_4',  field_name: '运行异响/振动',     field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 4 },
+          { id: 'bi_5',  field_name: '楼层显示与报站',    field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 5 },
+          { id: 'bi_6',  field_name: '制动器状态',        field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 6 },
+          { id: 'bi_7',  field_name: '钢丝绳/曳引绳',    field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 7 },
+          { id: 'bi_8',  field_name: '安全钳/限速器',    field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 8 },
+          { id: 'bi_9',  field_name: '底坑积水/杂物',    field_type: 'radio',   options: ['正常', '异常'], required: true, sort_order: 9 },
+          { id: 'bi_10', field_name: '备注说明',          field_type: 'textarea', options: [],               required: false, sort_order: 10 }
+        ]
+      };
+    },
+
+    computed: {
+      // 当前渲染字段（优先用模板字段，否则用内置）
+      activeFields: function () {
+        if (this.fields && this.fields.length > 0) return this.fields;
+        return this.builtInFields;
+      },
+
+      canNext: function () {
+        if (this.step === 0) return !!this.selectedDevice;
+        if (this.step === 1) return !!this.selectedTemplate || this.fields.length > 0;
+        if (this.step === 2) return this.validateStep2();
+        if (this.step === 3) return this.signature.trim().length > 0;
+        return true;
+      },
+
+      passCount: function () {
+        var self = this;
+        var n = 0;
+        this.activeFields.forEach(function (f) {
+          if (self.fieldResult(f) === 'pass') n++;
+        });
+        return n;
+      },
+
+      failCount: function () {
+        var self = this;
+        var n = 0;
+        this.activeFields.forEach(function (f) {
+          if (self.fieldResult(f) === 'fail') n++;
+        });
+        return n;
+      },
+
+      hasFails: function () { return this.failCount > 0; }
+    },
+
+    mounted: function () {
       var self = this;
-      self.loadingDevice = true;
-      api.get('/api/devices', { search: self.deviceKeyword }).then(function (d) {
-        self.deviceList = d.data || d || [];
-        self.loadingDevice = false;
-      }).catch(function () {
-        self.deviceList = [];
-        self.loadingDevice = false;
-      });
-    },
-    selectDevice: function (dev) { this.selectedDevice = dev; },
-    scan: function () {
-      var self = this;
-      utils.scanCode().then(function (code) {
-        return api.scanDevice(code);
-      }).then(function (dev) {
-        self.selectedDevice = dev;
-      }).catch(function (e) {
-        utils.toast((e && e.message) || '扫码失败');
-      });
-    },
-    isChecked: function (seq, val) {
-      var arr = this.formData[seq];
-      return Array.isArray(arr) && arr.indexOf(val) >= 0;
-    },
-    toggleCheck: function (seq, val) {
-      var arr = this.formData[seq];
-      if (!Array.isArray(arr)) arr = [];
-      var idx = arr.indexOf(val);
-      if (idx >= 0) arr.splice(idx, 1); else arr.push(val);
-      this.formData[seq] = arr;
-    },
-    itemResult: function (f) {
-      var v = this.formData[f.seq];
-      if (f.type === 'radio' || f.type === 'select') {
-        if (v === '异常' || v === '超差') return 'fail';
+      var id = this.query && this.query.id;
+      if (id) {
+        self.editId = id;
+        self.loadEdit();
+      } else {
+        self.loading = false;
       }
-      return 'pass';
     },
-    resultColor: function (f) {
-      return this.itemResult(f) === 'fail' ? 'var(--danger)' : 'var(--success)';
+
+    watch: {
+      'query.id': function (nv) {
+        var id = nv || null;
+        if (String(id || '') !== String(this.editId || '')) {
+          this.editId = id;
+          this.resetForm();
+          if (id) this.loadEdit();
+          else this.loading = false;
+        }
+      }
     },
-    resultLabel: function (f) {
-      return this.itemResult(f) === 'fail' ? '异常' : '通过';
-    },
-    todayStr: function () {
-      var d = new Date();
-      var m = ('0' + (d.getMonth() + 1)).slice(-2);
-      var day = ('0' + d.getDate()).slice(-2);
-      return d.getFullYear() + '-' + m + '-' + day;
-    },
-    submit: function () {
-      var self = this;
-      if (!self.selectedDevice) { utils.toast('请先选择设备'); return; }
-      if (!self.signature) { utils.toast('请填写检查人签名'); return; }
-      if (self.submitting) return;
-      self.submitting = true;
-      var items = self.checklist.map(function (f) {
-        var v = self.formData[f.seq];
-        return {
-          itemSeq: f.seq,
-          itemName: f.name,
-          itemCategory: f.category,
-          itemType: f.type,
-          inputValue: (v == null ? '' : (Array.isArray(v) ? v.join(',') : String(v))),
-          standardValue: '',
-          compareResult: self.itemResult(f)
+
+    methods: {
+      resetForm: function () {
+        this.step = 0;
+        this.viewMode = false;
+        this.fields = [];
+        this.formData = {};
+        this.selectedDevice = null;
+        this.selectedTemplate = null;
+        this.signature = '';
+        this.deviceList = [];
+        this.templateList = [];
+      },
+
+      // === 步骤条 ===
+      stepClass: function (i) {
+        return { on: this.step === i, done: this.step > i };
+      },
+
+      // === 设备搜索 ===
+      searchDevice: function () {
+        var self = this;
+        self.deviceLoading = true;
+        api.get('/api/devices', { search: self.deviceKeyword, page: 1, size: 50 })
+          .then(function (d) { self.deviceList = (d && d.data) || d || []; })
+          .catch(function () { self.deviceList = []; })
+          .finally(function () { self.deviceLoading = false; });
+      },
+
+      // === 扫码 ===
+      doScan: function () {
+        var self = this;
+        utils.scanCode().then(function (code) {
+          return api.scanDevice(code);
+        }).then(function (dev) {
+          self.selectedDevice = dev;
+          self.deviceList = [];
+        }).catch(function (e) {
+          utils.toast((e && e.message) || '扫码失败');
+        });
+      },
+
+      selectDevice: function (dev) {
+        this.selectedDevice = dev;
+        this.deviceList = [];
+      },
+
+      clearDevice: function () {
+        this.selectedDevice = null;
+      },
+
+      // === 模板加载 ===
+      loadTemplates: function () {
+        var self = this;
+        self.templateLoading = true;
+        api.getTemplates({ status: 'published', page: 1, size: 100 })
+          .then(function (d) {
+            var all = (d && d.data) || d || [];
+            // 优先筛选日管控类别
+            var daily = all.filter(function (t) {
+              var cat = (t.category || '').toLowerCase();
+              return cat.indexOf('日') >= 0 || cat.indexOf('daily') >= 0;
+            });
+            self.templateList = daily.length > 0 ? daily : all;
+          })
+          .catch(function () { self.templateList = []; })
+          .finally(function () { self.templateLoading = false; });
+      },
+
+      selectTemplate: function (t) {
+        var self = this;
+        this.selectedTemplate = t;
+        this.fields = [];
+        this.formData = {};
+        api.getTemplateFields(t.id).then(function (d) {
+          var fd = (d && d.data && d.data.fields) || d.fields || d || [];
+          self.fields = fd;
+          fd.forEach(function (f) {
+            self.formData[f.id] = f.field_type === 'checkbox' ? [] : (f.default_value || '');
+          });
+        }).catch(function () {
+          self.fields = [];
+        });
+      },
+
+      // === 字段渲染 ===
+      fieldLabel: function (f) {
+        return f.field_label || f.field_name || f.item_name || '';
+      },
+
+      fieldCategory: function (f) {
+        return f.item_category || f.category || '';
+      },
+      catText: function (t) { return t.category || '\u901a\u7528'; },
+      codeText: function (t) { return t.code || ''; },
+      tplClass: function (t) { return { on: !!(this.selectedTemplate && this.selectedTemplate.id === t.id) }; },
+
+      isTextType: function (f) {
+        return f.field_type === 'text' || f.field_type === 'number';
+      },
+
+      isMediaType: function (f) {
+        return f.field_type === 'photo' || f.field_type === 'file' || f.field_type === 'ai_recognition';
+      },
+
+      parseOpts: function (f) {
+        var o = f.options;
+        if (Array.isArray(o)) return o;
+        if (!o) return [];
+        return String(o).split(/[,|，;；、]/).map(function (s) { return s.trim(); }).filter(Boolean);
+      },
+
+      isChecked: function (fid, val) {
+        var arr = this.formData[fid];
+        return Array.isArray(arr) && arr.indexOf(val) >= 0;
+      },
+
+      toggleCheck: function (fid, val) {
+        var arr = this.formData[fid];
+        if (!Array.isArray(arr)) arr = [];
+        var idx = arr.indexOf(val);
+        if (idx >= 0) arr.splice(idx, 1); else arr.push(val);
+        this.formData[fid] = arr;
+      },
+
+      isEmpty: function (v) {
+        if (Array.isArray(v)) return !v.length;
+        return v == null || String(v).trim() === '';
+      },
+
+      // === 逐项比对结果 ===
+      fieldResult: function (f) {
+        var v = this.formData[f.id];
+        var type = f.field_type;
+        var required = !!f.required;
+        if (type === 'radio' || type === 'select') {
+          var ngVals = ['异常', '超差', 'fail', 'ng', '不合格'];
+          if (ngVals.indexOf(String(v || '').trim()) >= 0) return 'fail';
+        }
+        if (!this.isEmpty(v)) return 'pass';
+        if (required) return 'fail';
+        return 'pass';
+      },
+
+      resultClass: function (f) {
+        var r = this.fieldResult(f);
+        if (r === 'pass') return 'tag-ok';
+        return 'tag-ng';
+      },
+
+      resultLabel: function (f) {
+        return this.fieldResult(f) === 'pass' ? '通过' : '异常';
+      },
+
+      // === 验证 ===
+      validateStep2: function () {
+        var self = this;
+        var skip = { sensor_data: 1, computed: 1, photo: 1, file: 1, ai_recognition: 1 };
+        for (var i = 0; i < this.activeFields.length; i++) {
+          var f = this.activeFields[i];
+          if (skip[f.field_type]) continue;
+          if (!f.required) continue;
+          if (this.isEmpty(this.formData[f.id])) {
+            return false;
+          }
+        }
+        return true;
+      },
+
+      // === 文件/拍照 ===
+      pickFile: function (f) {
+        var self = this;
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = f.field_type === 'file' ? '*/*' : 'image/*';
+        input.onchange = function () {
+          var file = input.files && input.files[0];
+          if (file) self.formData[f.id] = file.name;
         };
-      });
-      api.createInspection({ deviceId: self.selectedDevice.id, checkDate: self.todayStr(), templateId: null })
-        .then(function (res) {
-          var id = res.id || (res.data && res.data.id);
-          return api.post('/api/mobile/inspections/' + id + '/items', { items: items })
-            .then(function () { return id; });
-        })
-        .then(function (id) {
-          return api.submitInspection(id, { signature: self.signature });
-        })
-        .then(function () {
-          self.submitting = false;
+        input.click();
+      },
+
+      // === 导航 ===
+      next: function () {
+        var self = this;
+        if (self.step === 0) {
+          if (!self.selectedDevice) { utils.toast('请选择设备'); return; }
+        }
+        if (self.step === 1) {
+          // 模板可省略（用内置字段）
+          if (self.selectedTemplate) {
+            // 已通过 selectTemplate 加载字段
+          }
+        }
+        if (self.step === 2) {
+          if (!self.validateStep2()) { utils.toast('请填写所有必填项'); return; }
+        }
+        if (self.step === 3) {
+          if (!self.signature.trim()) { utils.toast('请填写检查人签名'); return; }
+        }
+        if (self.step < 3) self.step++;
+      },
+
+      prev: function () {
+        if (this.step > 0) this.step--;
+      },
+
+      // === 加载编辑数据 ===
+      loadEdit: function () {
+        var self = this;
+        self.loading = true;
+        api.getInspection(self.editId).then(function (d) {
+          var data = d.data || d;
+          self.selectedDevice = {
+            id: data.device_id,
+            device_name: data.device_name,
+            device_code: data.device_code,
+            location: data.location
+          };
+          self.checkDate = data.check_date || self.checkDate;
+          self.signature = data.signature || '';
+
+          var ro = ['submitted', 'reviewed', 'completed'];
+          self.viewMode = ro.indexOf(data.status) >= 0;
+
+          var items = data.items || [];
+          if (items.length > 0) {
+            // 用已有检查项构造字段
+            self.fields = items.map(function (it, idx) {
+              return {
+                id: 'edit_' + (it.field_id || it.id || idx),
+                field_name: it.item_name,
+                field_type: it.item_type || 'text',
+                options: it.item_type === 'select' ? ['正常', '异常', '超差'] : [],
+                required: true,
+                sort_order: idx + 1
+              };
+            });
+            items.forEach(function (it) {
+              var fid = 'edit_' + (it.field_id || it.id);
+              self.formData[fid] = it.input_value || '';
+            });
+          }
+          self.step = 2;
+          self.loading = false;
+        }).catch(function () {
+          self.loading = false;
+          utils.toast('加载失败');
+        });
+      },
+
+      // === 构建提交数据 ===
+      buildItems: function () {
+        var self = this;
+        return this.activeFields.map(function (f, idx) {
+          var val = self.formData[f.id];
+          var inputValue = Array.isArray(val) ? val.join(',') : (val == null ? '' : String(val));
+          var compareResult = self.fieldResult(f);
+          return {
+            fieldId: f.id,
+            itemSeq: f.sort_order != null ? f.sort_order : (idx + 1),
+            itemName: self.fieldLabel(f),
+            itemCategory: self.fieldCategory(f) || '日管控',
+            itemType: f.field_type || 'text',
+            inputValue: inputValue,
+            standardValue: f.default_value || f.standard_value || '',
+            compareResult: compareResult,
+            reviewRequired: compareResult === 'fail' ? 1 : 0,
+            failReason: compareResult === 'fail' ? '检测值异常' : null
+          };
+        });
+      },
+
+      // === 提交 ===
+      doSubmit: function () {
+        var self = this;
+        if (self.submitting) return;
+        self.submitting = true;
+        var items = self.buildItems();
+        var createData = {
+          deviceId: self.selectedDevice.id,
+          checkDate: self.checkDate,
+          templateId: self.selectedTemplate ? self.selectedTemplate.id : null
+        };
+
+        var submitId = self.editId;
+        var step = function (id) {
+          submitId = id;
+          return api.post('/api/mobile/inspections/' + id + '/items', { items: items });
+        };
+
+        (self.editId
+          ? Promise.resolve(self.editId)
+          : api.createInspection(createData).then(function (res) {
+              return res.id || (res.data && res.data.id) || null;
+            })
+        ).then(function (id) {
+          if (!id) throw new Error('创建检查任务失败');
+          return step(id);
+        }).then(function () {
+          return api.submitInspection(submitId, { signature: self.signature.trim() });
+        }).then(function () {
           utils.toast('提交成功');
-          utils.go('/daily_detail?id=' + (self.editId || ''));
-        })
-        .catch(function (e) {
+          setTimeout(function () { utils.go('/daily_detail?id=' + submitId); }, 900);
+        }).catch(function (e) {
           self.submitting = false;
           utils.toast((e && e.message) || '提交失败');
         });
+      },
+
+      goBack: function () { utils.go('/daily'); }
     },
-    loadEdit: function () {
-      var self = this;
-      var id = this.query && this.query.id;
-      if (!id) return;
-      self.editId = id;
-      self.loading = true;
-      api.getInspection(id).then(function (d) {
-        var data = d.data || d;
-        self.selectedDevice = { id: data.device_id, device_name: data.device_name, device_code: data.device_code };
-        (data.items || []).forEach(function (it) {
-          self.formData[it.item_seq] = it.input_value;
-        });
-        self.signature = data.signature || '';
-        self.loading = false;
-      }).catch(function () {
-        self.loading = false;
-      });
-    }
-  },
-  mounted: function () { this.loadEdit(); },
-  template: `
-  <div class="page">
-    <div class="block-title">设备选择</div>
-    <div class="card">
-      <div class="btn-row">
-        <input class="fi-input" v-model="deviceKeyword" placeholder="输入设备名称/编号搜索" style="flex:1;">
-        <button class="btn-query" @click="searchDevice">搜索</button>
-        <button class="btn-scan" @click="scan">扫码</button>
-      </div>
-      <div v-if="selectedDevice" class="dev-pick">
-        <span class="dev-pick-item">✓ {{selectedDevice.device_name}}（{{selectedDevice.device_code}}）</span>
-      </div>
-      <div v-for="dev in deviceList" :key="dev.id" class="dev-item" @click="selectDevice(dev)">
-        <div class="dev-name">{{dev.device_name}}</div>
-        <div class="dev-sub">{{dev.device_code}} · {{dev.location}}</div>
-      </div>
-    </div>
 
-    <div class="block-title">检查项</div>
-    <div class="card" v-for="f in checklist" :key="f.seq">
-      <div class="fi-label">{{f.name}} <span class="muted">· {{f.category}}</span></div>
-      <input v-if="f.type==='text' || f.type==='number' || f.type==='date'" class="fi-input"
-             :type="f.type" :value="formData[f.seq]" @input="e => formData[f.seq] = e.target.value">
-      <textarea v-else-if="f.type==='textarea'" class="fi-input"
-             :value="formData[f.seq]" @input="e => formData[f.seq] = e.target.value"></textarea>
-      <select v-else-if="f.type==='select'" class="fi-input"
-             :value="formData[f.seq]" @change="formData[f.seq] = $event.target.value">
-        <option v-for="o in f.options" :key="o" :value="o">{{o}}</option>
-      </select>
-      <div v-else-if="f.type==='radio'">
-        <label class="choice-row" v-for="o in f.options" :key="o">
-          <input type="radio" :name="'f'+f.seq" :value="o" :checked="formData[f.seq]===o" @change="formData[f.seq]=o">
-          <span>{{o}}</span>
-        </label>
-      </div>
-      <div v-else-if="f.type==='checkbox'">
-        <label class="choice-row" v-for="o in f.options" :key="o">
-          <input type="checkbox" :value="o" :checked="isChecked(f.seq,o)" @change="toggleCheck(f.seq,o)">
-          <span>{{o}}</span>
-        </label>
-      </div>
-      <div class="btn-row" style="margin-top:8px;">
-        <span class="badge" :style="{color:resultColor(f),borderColor:resultColor(f)}">{{resultLabel(f)}}</span>
-      </div>
-    </div>
+    unmounted: function () { this._gone = true; },
 
-    <div class="block-title">检查人签名</div>
-    <div class="card">
-      <input class="fi-input" v-model="signature" placeholder="输入检查人姓名/工号">
-    </div>
+    template: [
+      '<div class="page">',
 
-    <div class="bottom-bar">
-      <button class="btn-primary" :disabled="!canSubmit" @click="submit">提交日管控</button>
-    </div>
-  </div>`
-};
+        // ===== 步骤条 =====
+        '<div class="steps">',
+          '<div v-for="(s,i) in steps" :key="s" class="step" :class="stepClass(i)">',
+            '<div class="dot">{{i+1}}</div>',
+            '<div class="lab">{{s}}</div>',
+          '</div>',
+        '</div>',
+
+        // ===== 加载态 =====
+        '<div v-if="loading" style="text-align:center;padding:40px 0">',
+          '<div style="font-size:36px">⏳</div>',
+          '<div style="color:var(--text-3);margin-top:8px">加载中...</div>',
+        '</div>',
+
+        '<template v-else>',
+
+          // ===== STEP 0：选设备 =====
+          '<div v-if="step === 0">',
+            '<div class="card">',
+              '<div class="card-h"><div class="card-t">🏠 设备选择</div></div>',
+
+              '<div class="form-item">',
+                '<div class="form-label">检查日期</div>',
+                '<input type="date" :value="checkDate" @input="e=>checkDate = e.target.value" class="fi-input" :disabled="viewMode">',
+              '</div>',
+
+              '<div class="form-item">',
+                '<div class="form-label">搜索设备 <span class="req">*</span></div>',
+                '<div style="display:flex;gap:8px;margin-bottom:8px">',
+                  '<input v-model="deviceKeyword" class="fi-input" style="flex:1" placeholder="输入设备名称 / 编号" @keyup.enter="searchDevice">',
+                  '<button class="btn-ghost" style="width:auto;padding:0 12px;flex:none" @click="searchDevice">搜索</button>',
+                  '<button class="btn-primary" style="width:auto;padding:0 12px;flex:none" @click="doScan">📷</button>',
+                '</div>',
+
+                // 已选设备
+                '<div v-if="selectedDevice" style="background:#f0f9eb;border:1px solid #c2e7b0;border-radius:8px;padding:10px 12px;margin-bottom:8px">',
+                  '<div style="font-size:14px;font-weight:600">✅ {{selectedDevice.device_name}}</div>',
+                  '<div style="font-size:12px;color:var(--text-3)">{{selectedDevice.device_code}} · {{selectedDevice.location}}</div>',
+                  '<button v-if="!viewMode" class="btn-ghost btn-sm" style="margin-top:6px;width:auto;display:inline-block;padding:4px 12px" @click="clearDevice">清除选择</button>',
+                '</div>',
+
+                // 搜索结果
+                '<div v-if="deviceLoading" style="text-align:center;padding:10px;color:var(--text-3)">搜索中...</div>',
+                '<div v-for="dev in deviceList" :key="dev.id" class="list-item" style="padding:10px 12px;border:1px solid var(--border-light);border-radius:6px;margin-bottom:6px;cursor:pointer" @click="selectDevice(dev)">',
+                  '<div style="font-size:13px;font-weight:500">{{dev.device_name}}</div>',
+                  '<div style="font-size:12px;color:var(--text-3)">{{dev.device_code}} · {{dev.location}}</div>',
+                '</div>',
+              '</div>',
+            '</div>',
+
+            '<div class="btn-row">',
+              '<button class="btn-ghost" @click="goBack">返回</button>',
+              '<button class="btn-primary" @click="next" :disabled="!canNext">下一步</button>',
+            '</div>',
+          '</div>',
+
+          // ===== STEP 1：选模板 =====
+          '<div v-if="step === 1">',
+            '<div class="card">',
+              '<div class="card-h"><div class="card-t">📋 选择模板</div></div>',
+              '<div style="color:var(--text-3);font-size:12px;margin-bottom:12px">若跳过模板，将使用标准日管控检查项</div>',
+              '<div style="margin-bottom:12px">',
+                '<input v-model="templateKeyword" class="fi-input" placeholder="搜索模板名称" @focus="loadTemplates">',
+              '</div>',
+              '<div v-if="templateLoading" style="text-align:center;padding:10px;color:var(--text-3)">加载中...</div>',
+              '<div v-for="t in templateList" :key="t.id" class="list-item" style="padding:10px 12px;border:1px solid var(--border-light);border-radius:6px;margin-bottom:6px;cursor:pointer" :class="tplClass(t)" @click="selectTemplate(t)">',
+                '<div style="font-size:13px;font-weight:500">{{t.name}} <span style="color:var(--text-3)">v{{t.version||1}}</span></div>',
+                '<div style="font-size:12px;color:var(--text-3)">{{catText(t)}} · {{codeText(t)}}</div>',
+              '</div>',
+              '<div style="text-align:center;padding:12px 0">',
+                '<button class="btn-ghost btn-sm" style="width:auto;display:inline-block;padding:6px 16px" @click="next">跳过，使用标准检查项</button>',
+              '</div>',
+            '</div>',
+            '<div class="btn-row">',
+              '<button class="btn-ghost" @click="prev">返回</button>',
+              '<button class="btn-primary" @click="next">下一步</button>',
+            '</div>',
+          '</div>',
+
+          // ===== STEP 2：逐项检查 =====
+          '<div v-if="step === 2">',
+            '<div v-if="viewMode" class="card" style="margin-bottom:10px">',
+              '<span class="tag tag-info">该检查已提交，当前为只读查看</span>',
+            '</div>',
+
+            '<div class="card" v-for="(f,i) in activeFields" :key="f.id" style="margin-bottom:10px">',
+              '<div style="font-size:13px;font-weight:600;margin-bottom:8px">',
+                '{{i+1}}. {{fieldLabel(f)}}',
+                '<span v-if="f.required" style="color:var(--danger)"> *</span>',
+                '<span v-if="fieldCategory(f)" style="color:var(--text-3);font-weight:400"> · {{fieldCategory(f)}}</span>',
+              '</div>',
+
+              // text / number
+              '<input v-if="isTextType(f)"',
+                ' class="fi-input"',
+                ' :type="f.field_type===\'number\'?\'number\':\'text\'"',
+                ' :value="formData[f.id]"',
+                ' @input="e=>formData[f.id] = e.target.value"',
+                ' :disabled="viewMode"',
+                ' :placeholder="f.placeholder||\'请输入\'">',
+
+              // textarea
+              '<textarea v-else-if="f.field_type===\'textarea\'"',
+                ' class="fi-input"',
+                ' :value="formData[f.id]"',
+                ' @input="e=>formData[f.id] = e.target.value"',
+                ' :disabled="viewMode"',
+                ' :placeholder="f.placeholder||\'请输入\'"',
+                ' style="min-height:70px;resize:vertical"></textarea>',
+
+              // date
+              '<input v-else-if="f.field_type===\'date\'"',
+                ' type="date" class="fi-input"',
+                ' :value="formData[f.id]"',
+                ' @input="e=>formData[f.id] = e.target.value"',
+                ' :disabled="viewMode">',
+
+              // select
+              '<select v-else-if="f.field_type===\'select\'"',
+                ' class="fi-input"',
+                ' :value="formData[f.id]"',
+                ' @change="e=>formData[f.id] = e.target.value"',
+                ' :disabled="viewMode">',
+                '<option value="">请选择</option>',
+                '<option v-for="o in parseOpts(f)" :key="o" :value="o">{{o}}</option>',
+              '</select>',
+
+              // radio
+              '<div v-else-if="f.field_type===\'radio\'">',
+                '<label v-for="o in parseOpts(f)" :key="o" style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border-light);cursor:pointer">',
+                  '<input type="radio" :name="\'f\'+f.id" :value="o" :checked="formData[f.id]===o" @change="formData[f.id]=o" :disabled="viewMode">',
+                  '<span style="font-size:13px">{{o}}</span>',
+                '</label>',
+              '</div>',
+
+              // checkbox
+              '<div v-else-if="f.field_type===\'checkbox\'">',
+                '<label v-for="o in parseOpts(f)" :key="o" style="display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--border-light);cursor:pointer">',
+                  '<input type="checkbox" :value="o" :checked="isChecked(f.id,o)" @change="toggleCheck(f.id,o)" :disabled="viewMode">',
+                  '<span style="font-size:13px">{{o}}</span>',
+                '</label>',
+              '</div>',
+
+              // photo / file
+              '<div v-else-if="isMediaType(f)">',
+                '<div v-if="formData[f.id]" style="font-size:12px;color:var(--text-3);margin-bottom:6px">📎 {{formData[f.id]}}</div>',
+                '<button v-if="!viewMode" class="btn-ghost btn-sm" style="width:auto;display:inline-block;padding:6px 14px" @click="pickFile(f)">',
+                  '{{formData[f.id] ? \'重新选择\' : (f.field_type===\'file\'?\'选择文件\':\'📷 拍照\')}}',
+                '</button>',
+              '</div>',
+
+              // 其他（只读）
+              '<div v-else style="color:var(--text-3);font-size:13px">{{formData[f.id]||\'—\'}}</div>',
+
+              // 结果标签
+              '<div style="margin-top:8px">',
+                '<span class="tag" :class="resultClass(f)">{{resultLabel(f)}}</span>',
+              '</div>',
+            '</div>',
+
+            // 统计摘要
+            '<div class="card" style="margin-bottom:10px">',
+              '<div style="font-size:13px">检查项 {{activeFields.length}} 项 · <span style="color:var(--success)">通过 {{passCount}}</span> · <span style="color:var(--danger)">异常 {{failCount}}</span></div>',
+            '</div>',
+
+            '<div class="btn-row">',
+              '<button class="btn-ghost" @click="prev">返回</button>',
+              '<button v-if="!viewMode" class="btn-primary" @click="next">下一步：签名</button>',
+              '<button v-else class="btn-primary" @click="goBack">返回列表</button>',
+            '</div>',
+          '</div>',
+
+          // ===== STEP 3：签名提交 =====
+          '<div v-if="step === 3">',
+            '<div class="card">',
+              '<div class="card-h"><div class="card-t">🖊 提交签名</div></div>',
+              '<div style="font-size:13px;color:var(--text-2);margin-bottom:14px">',
+                '设备：{{selectedDevice ? selectedDevice.device_name : \'—\'}} ({{selectedDevice ? selectedDevice.device_code : \'—\'}})<br>',
+                '检查日期：{{checkDate}}<br>',
+                '检查项：{{activeFields.length}} 项（通过 {{passCount}} / 异常 {{failCount}}）',
+              '</div>',
+              '<div v-if="hasFails" style="background:#fef0f0;border:1px solid #fbc4c4;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:var(--danger)">',
+                '⚠️ 有 {{failCount}} 项检测异常，提交后将进入复核流程',
+              '</div>',
+              '<div class="form-item">',
+                '<div class="form-label">检查人签名（姓名）<span class="req">*</span></div>',
+                '<input v-model="signature" class="fi-input" placeholder="请输入检查人姓名" :disabled="viewMode">',
+              '</div>',
+            '</div>',
+
+            '<div v-if="!viewMode" class="btn-row">',
+              '<button class="btn-ghost" @click="prev">返回</button>',
+              '<button class="btn-primary" @click="doSubmit" :disabled="!canNext || submitting">',
+                '{{submitting ? \'提交中...\' : \'确认提交\'}}',
+              '</button>',
+            '</div>',
+            '<div v-else class="btn-row">',
+              '<button class="btn-ghost" @click="goBack">返回列表</button>',
+            '</div>',
+          '</div>',
+
+        '</template>',
+
+        // ===== 底部留白 =====
+        '<div style="height:20px"></div>',
+
+      '</div>'
+    ].join('')
+  };
+})();

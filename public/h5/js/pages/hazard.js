@@ -1,6 +1,8 @@
-// 隐患排查列表 → H5（Vue3 global build，按契约重写）
-// GET /api/mobile/hazards   api.getHazards({status,riskLevel})
-// 顶部按风险等级 + 状态筛选；项展示设备/编号/类型/风险/状态；点进 /hazard_detail?id=
+// 隐患排查列表 → H5（Vue3 global build，按契约 v2 重写）
+// GET /api/mobile/hazards?status&riskLevel  api.getHazards({status,riskLevel})
+// 列表用 .list/.list-item；risk_level 用 tag（low→tag-low / general→tag-general / major→tag-major / critical→tag-critical）
+// 状态 tag（pending→tag-pending / rectifying→tag-info / verifying→tag-warning / closed→tag-ok）
+// 点进 /hazard_detail?id=
 window.Pages = window.Pages || {};
 window.Pages.hazard = {
   name: 'hazard',
@@ -8,15 +10,16 @@ window.Pages.hazard = {
   data: function () {
     return {
       loading: true,
+      error: '',
       list: [],
       activeRisk: 'all',
       activeStatus: 'all',
       riskTabs: [
-        { key: 'all', label: '全部', dot: 'dot-gray' },
-        { key: 'critical', label: '重大', dot: 'dot-red' },
-        { key: 'major', label: '较大', dot: 'dot-orange' },
-        { key: 'general', label: '一般', dot: 'dot-yellow' },
-        { key: 'low', label: '低', dot: 'dot-green' }
+        { key: 'all', label: '全部' },
+        { key: 'critical', label: '重大' },
+        { key: 'major', label: '较大' },
+        { key: 'general', label: '一般' },
+        { key: 'low', label: '低' }
       ],
       statusTabs: [
         { key: 'all', label: '全部' },
@@ -28,13 +31,13 @@ window.Pages.hazard = {
     };
   },
   computed: {
-    // 列表渲染无需裸运算符，直接用 list
     emptyList: function () { return this.list.length === 0; }
   },
   methods: {
     load: function () {
       var self = this;
       self.loading = true;
+      self.error = '';
       var params = {};
       if (self.activeStatus !== 'all') params.status = self.activeStatus;
       if (self.activeRisk !== 'all') params.riskLevel = self.activeRisk;
@@ -42,8 +45,8 @@ window.Pages.hazard = {
         var arr = d && d.data;
         self.list = Array.isArray(arr) ? arr : (Array.isArray(d) ? d : []);
       }).catch(function (e) {
+        self.error = (e && e.message) ? e.message : '网络错误，请重试';
         self.list = [];
-        utils.toast(e && e.message ? e.message : '网络错误');
       }).then(function () {
         self.loading = false;
       });
@@ -54,64 +57,73 @@ window.Pages.hazard = {
     isStatusOn: function (key) { return this.activeStatus === key; },
     goForm: function () { utils.go('/hazard_form'); },
     goDetail: function (id) { utils.go('/hazard_detail?id=' + id); },
-    // 风险等级展示统一走 utils.levelColor / utils.levelLabel
-    levelLabel: function (level) { return utils.levelLabel(level); },
-    levelColor: function (level) { return utils.levelColor(level); },
-    statusLabel: function (status) { return utils.statusLabel(status); },
-    statusColor: function (status) { return utils.statusColor(status); },
-    // 设备名/位置 拼装（JS 内拼接，模板不出现运算符）
+    riskTagClass: function (level) {
+      var m = { critical: 'tag-critical', major: 'tag-major', general: 'tag-general', low: 'tag-low' };
+      return m[String(level || '').toLowerCase()] || 'tag-low';
+    },
+    riskLabel: function (level) {
+      var m = { critical: '重大', major: '较大', general: '一般', low: '低' };
+      return m[String(level || '').toLowerCase()] || String(level || '');
+    },
+    statusTagClass: function (status) {
+      var m = { pending: 'tag-pending', rectifying: 'tag-info', verifying: 'tag-warning', closed: 'tag-ok' };
+      return m[String(status || '')] || 'tag-pending';
+    },
+    statusLabel: function (status) {
+      var m = { pending: '待整改', rectifying: '整改中', verifying: '待验收', closed: '已关闭' };
+      return m[String(status || '')] || '待处理';
+    },
     deviceLine: function (item) {
       var line = item.device_name || item.deviceName || '未知设备';
-      if (item.location) line = line + ' · ' + item.location;
-      else if (item.device_location) line = line + ' · ' + item.device_location;
+      var loc = item.location || item.device_location || item.deviceLocation;
+      if (loc) line = line + ' · ' + loc;
       return line;
     },
-    // 设备编号 · 隐患类型 拼装
     codeLine: function (item) {
       var parts = [];
       if (item.device_code || item.deviceCode) parts.push(item.device_code || item.deviceCode);
-      if (item.hazard_type || item.hazardType) parts.push(item.hazard_type || item.hazardType);
+      if (item.hazard_no || item.hazardNo) parts.push(item.hazard_no || item.hazardNo);
       return parts.join(' · ');
     },
+    hazardTypeLabel: function (item) { return item.hazard_type || item.hazardType || ''; },
     findTime: function (item) {
-      var t = item.find_time || item.findTime || item.created_at || item.createdAt || item.create_time || '';
+      var t = item.find_time || item.findTime || item.created_at || item.createdAt || '';
       return t ? utils.formatTime(t) : '';
     }
   },
   mounted: function () { this.load(); },
   template: `
-  <div class="page haz">
-    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+  <div class="page">
+    <div v-if="loading" class="loading-wrap"><span class="spinner"></span><span>加载中...</span></div>
+    <div v-else-if="error" class="error-wrap">
+      <div class="em-ic">⚠️</div>
+      <div class="em-tip">{{ error }}</div>
+      <button class="btn btn-o er-btn" @click="load">重试</button>
+    </div>
     <template v-else>
-      <!-- 风险等级筛选（横向滚动） -->
-      <div class="risk-tabs">
-        <div v-for="t in riskTabs" :key="t.key" class="risk-tab" :class="isRiskOn(t.key) ? 'on' : ''" @click="onRisk(t.key)">
-          <span class="dot" :class="t.dot"></span>{{ t.label }}
-        </div>
+      <div class="seg">
+        <button v-for="t in riskTabs" :key="t.key" :class="isRiskOn(t.key) ? 'on' : ''" @click="onRisk(t.key)">{{ t.label }}</button>
+      </div>
+      <div class="seg">
+        <button v-for="s in statusTabs" :key="s.key" :class="isStatusOn(s.key) ? 'on' : ''" @click="onStatus(s.key)">{{ s.label }}</button>
       </div>
 
-      <!-- 状态筛选 -->
-      <div class="status-tabs">
-        <div v-for="s in statusTabs" :key="s.key" class="status-tab" :class="isStatusOn(s.key) ? 'on' : ''" @click="onStatus(s.key)">
-          {{ s.label }}
-        </div>
-      </div>
-
-      <div class="list-wrap">
-        <div v-for="(item, i) in list" :key="item.id || i" class="hcard" @click="goDetail(item.id)">
-          <div class="hcard-top">
-            <div class="hcard-desc">{{ item.description }}</div>
-            <span class="badge" :style="{ background: levelColor(item.risk_level), color: '#fff' }">{{ levelLabel(item.risk_level) }}</span>
+      <div class="list">
+        <div v-for="(item, i) in list" :key="item.id || i" class="list-item" @click="goDetail(item.id)">
+          <div class="li-icon">⚠️</div>
+          <div class="li-body">
+            <div class="li-title">{{ deviceLine(item) }}</div>
+            <div class="li-sub">{{ codeLine(item) }}<span v-if="hazardTypeLabel(item)"> · {{ hazardTypeLabel(item) }}</span></div>
+            <div class="li-sub">
+              <span class="tag" :class="statusTagClass(item.status)">{{ statusLabel(item.status) }}</span>
+              <span v-if="findTime(item)" class="muted"> · {{ findTime(item) }}</span>
+            </div>
           </div>
-          <div class="hcard-sub muted">{{ deviceLine(item) }}</div>
-          <div class="hcard-sub muted">{{ codeLine(item) }}</div>
-          <div class="hcard-foot">
-            <span class="badge" :style="{ background: statusColor(item.status), color: '#fff' }">{{ statusLabel(item.status) }}</span>
-            <span class="hcard-time muted">{{ findTime(item) }}</span>
+          <div class="li-extra" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+            <span class="tag" :class="riskTagClass(item.risk_level)">{{ riskLabel(item.risk_level) }}</span>
           </div>
-          <div v-if="item.deadline" class="hcard-deadline">整改期限：{{ item.deadline }}</div>
         </div>
-        <div v-if="emptyList" class="empty-state"><span class="muted">暂无隐患记录</span></div>
+        <div v-if="emptyList" class="empty-wrap"><div class="em-ic">📋</div><div class="em-tip">暂无隐患记录</div></div>
       </div>
     </template>
     <button class="fab" @click="goForm">＋</button>

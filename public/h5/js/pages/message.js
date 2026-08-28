@@ -1,142 +1,117 @@
-// 消息中心
+// 消息中心 - H5 (Vue3 全局构建, 按契约重写)
+// 契约 #22: GET /api/mobile/messages?category → {data:[{id,category,title,content,is_read,created_at}]}
+// 契约 #22: 已读 POST /api/mobile/messages/:id/read; 全部已读 POST /api/mobile/messages/read-all
+// 铁律: v-model 仅限 input/select/textarea; 模板禁裸 && || < >; 根 <div class="page">; 三态齐全; 禁 SVG
 window.Pages = window.Pages || {};
 window.Pages.message = {
   name: 'message',
   props: ['query'],
-  template: `
-<div class="page">
-  <!-- 统计栏 -->
-  <div class="flex-between" style="padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:10px;">
-    <div class="muted text-sm">未读 {{unreadCount}} 条</div>
-    <button class="btn-sm btn-ghost" :disabled="submitting" @click="markAllRead">全部已读</button>
-  </div>
-
-  <!-- 分类 Tab -->
-  <div class="filter-bar" style="margin-bottom:10px;">
-    <div v-for="t in catTabs" :key="t.key"
-      :class="['check-tab', isActiveCat(t.key) ? 'check-tab-on' : '']"
-      @click="switchCat(t.key)">
-      {{t.label}}
-      <span v-if="catBadge(t.key) > 0" class="badge badge-orange" style="margin-left:3px;">{{catBadge(t.key)}}</span>
-    </div>
-  </div>
-
-  <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
-  <div v-else-if="listEmpty" class="empty-state"><span class="muted">暂无消息</span></div>
-  <div v-else>
-    <div v-for="(item, i) in list" :key="item.id || i" class="msg-swipe">
-      <div class="msg-del" @click="delMsg(item)">删除</div>
-      <div class="msg-item" :class="isUnread(item) ? 'unread' : ''"
-        :style="msgStyle(item)"
-        @click="onTap(item)"
-        @touchstart="startSwipe(item, $event)"
-        @touchmove="moveSwipe(item, $event)"
-        @touchend="endSwipe(item)">
-        <div class="msg-ico" :style="{background: catBg(item.category)}">{{catIcon(item.category)}}</div>
-        <div class="msg-body">
-          <div class="msg-t ellipsis">{{item.title}}</div>
-          <div class="msg-c">{{item.content}}</div>
-          <div class="msg-time">{{msgTime(item)}}</div>
-        </div>
-        <div v-if="isUnread(item)" class="dot-unread"></div>
-      </div>
-    </div>
-  </div>
-</div>
-`,
   data: function () {
     return {
-      cat: 'all',
+      loading: true,
+      error: false,
       list: [],
       stats: {},
-      loading: true,
+      activeCat: 'all',
       submitting: false,
-      openId: null,
-      curOffset: 0,
-      justSwiped: false,
-      swiping: { id: null, startX: 0, base: 0, moved: false }
+      tabs: [
+        { key: 'all', label: '全部' },
+        { key: 'approval', label: '审批' },
+        { key: 'warning', label: '预警' },
+        { key: 'workorder', label: '工单' },
+        { key: 'system', label: '系统' },
+        { key: 'emergency', label: '应急' }
+      ]
     };
   },
   computed: {
-    catTabs: function () {
-      return [
-        { key: 'all',      label: '全部' },
-        { key: 'approval', label: '审批' },
-        { key: 'warning',  label: '预警' },
-        { key: 'workorder',label: '工单' },
-        { key: 'system',   label: '系统' },
-        { key: 'emergency',label: '应急' }
-      ];
+    showEmpty: function () {
+      return !this.loading && !this.error && this.list.length === 0;
     },
-    listEmpty: function () { return this.list.length === 0; },
     unreadCount: function () {
       return this.stats.unread || this.stats.unread_total || 0;
+    },
+    catIconMap: function () {
+      return {
+        approval: '⚖️',
+        warning: '⚠️',
+        workorder: '🔧',
+        system: '⚙️',
+        emergency: '🚨',
+        hazard: '🔍'
+      };
+    },
+    catColorMap: function () {
+      return {
+        approval: 'var(--success)',
+        warning: 'var(--warning)',
+        workorder: 'var(--purple)',
+        system: 'var(--info)',
+        emergency: 'var(--danger)',
+        hazard: 'var(--primary)'
+      };
     }
   },
-  mounted: function () { this.load(); },
   methods: {
-    isActiveCat: function (key) { return this.cat === key; },
-    switchCat: function (key) {
-      if (this.cat === key) return;
-      this.cat = key;
-      this.openId = null;
-      this.curOffset = 0;
+    load: function () {
+      var self = this;
+      self.loading = true;
+      self.error = false;
+      var params = {};
+      if (self.activeCat !== 'all') {
+        params.category = self.activeCat;
+      }
+      Promise.all([
+        api.get('/api/mobile/messages', params),
+        api.get('/api/mobile/messages/stats')
+      ]).then(function (results) {
+        var d = results[0];
+        var s = results[1];
+        self.list = (d && d.data) ? d.data : (Array.isArray(d) ? d : []);
+        self.stats = s || {};
+      }).catch(function (e) {
+        self.error = true;
+        utils.toast((e && e.message) || '加载失败');
+      }).then(function () {
+        self.loading = false;
+      });
+    },
+    onTab: function (k) {
+      if (this.activeCat === k) return;
+      this.activeCat = k;
       this.load();
+    },
+    tabClass: function (k) {
+      return this.activeCat === k ? 'active' : '';
     },
     catBadge: function (key) {
       if (key === 'all') return this.unreadCount;
-      var m = {
+      var map = {
         approval: this.stats.approvalUnread || 0,
         warning: this.stats.warningUnread || 0,
         workorder: this.stats.workorderUnread || 0,
         emergency: this.stats.emergencyUnread || 0,
         system: 0
       };
-      return m[key] || 0;
+      return map[key] || 0;
     },
-    isUnread: function (item) { return !item.is_read; },
-    load: function () {
-      var self = this;
-      self.loading = true;
-      var params = {};
-      if (self.cat !== 'all') params.category = self.cat;
-      Promise.all([
-        api.getMessages(params),
-        api.getMessageStats()
-      ]).then(function (results) {
-        var d = results[0];
-        var s = results[1];
-        self.list = d.data || d || [];
-        self.stats = s || {};
-      }).catch(function () {
-        utils.toast('加载失败');
-      }).finally(function () {
-        self.loading = false;
-      });
+    showBadge: function (key) {
+      return this.catBadge(key) > 0;
     },
     catIcon: function (cat) {
-      var m = {
-        approval: '审',
-        warning: '警',
-        workorder: '工',
-        system: '系',
-        emergency: '应',
-        hazard: '患'
-      };
-      return m[cat] || '通';
+      return this.catIconMap[cat] || '📩';
     },
-    catBg: function (cat) {
-      var m = {
-        approval: '#52C41A',
-        warning: '#FA8C16',
-        workorder: '#722ED1',
-        system: '#999',
-        emergency: '#FF4D4F',
-        hazard: '#1677FF'
-      };
-      return m[cat] || '#999';
+    catColor: function (cat) {
+      return this.catColorMap[cat] || 'var(--info)';
     },
-    relativeTime: function (ts) {
+    isUnread: function (item) {
+      return !item.is_read;
+    },
+    msgTime: function (item) {
+      return utils.formatDateTime(item.created_at);
+    },
+    relativeTime: function (item) {
+      var ts = item.created_at;
       if (!ts) return '';
       var d = new Date(ts);
       if (isNaN(d.getTime())) return String(ts);
@@ -149,54 +124,17 @@ window.Pages.message = {
       var days = Math.floor(hours / 24);
       return days + '天前';
     },
-    msgTime: function (item) {
-      return this.relativeTime(item.created_at || item.create_time);
-    },
-    msgStyle: function (item) {
-      var off = 0;
-      if (this.swiping.id === item.id) off = this.curOffset;
-      else if (this.openId === item.id) off = -72;
-      return { transform: 'translateX(' + off + 'px)', padding: '14px' };
-    },
-    startSwipe: function (item, e) {
-      if (!e.touches || !e.touches.length) return;
-      this.swiping.id = item.id;
-      this.swiping.startX = e.touches[0].clientX;
-      this.swiping.base = (this.openId === item.id) ? -72 : 0;
-      this.swiping.moved = false;
-      this.curOffset = this.swiping.base;
-    },
-    moveSwipe: function (item, e) {
-      if (this.swiping.id !== item.id || !e.touches || !e.touches.length) return;
-      var dx = e.touches[0].clientX - this.swiping.startX;
-      if (Math.abs(dx) > 5) this.swiping.moved = true;
-      var off = this.swiping.base + dx;
-      if (off > 0) off = 0;
-      if (off < -72) off = -72;
-      this.curOffset = off;
-    },
-    endSwipe: function (item) {
-      if (this.swiping.id !== item.id) return;
-      var closed = this.curOffset > -36;
-      if (closed) { this.openId = null; this.curOffset = 0; }
-      else { this.openId = item.id; this.curOffset = -72; }
-      this.justSwiped = this.swiping.moved;
-      this.swiping.id = null;
-    },
     onTap: function (item) {
-      if (this.justSwiped) { this.justSwiped = false; return; }
-      if (this.openId === item.id) { this.openId = null; this.curOffset = 0; return; }
-      if (!item.is_read) {
+      if (this.isUnread(item)) {
         this.markRead(item);
       }
-      // 跳转到关联页面
       this.navigateRelated(item);
     },
     markRead: function (item) {
       var self = this;
-      api.markRead(item.id).then(function () {
+      api.post('/api/mobile/messages/' + item.id + '/read').then(function () {
         item.is_read = true;
-        return api.getMessageStats();
+        return api.get('/api/mobile/messages/stats');
       }).then(function (s) {
         self.stats = s || {};
       }).catch(function () {});
@@ -205,24 +143,16 @@ window.Pages.message = {
       var self = this;
       if (self.submitting) return;
       self.submitting = true;
-      api.markAllRead().then(function () {
-        self.list.forEach(function (it) { it.is_read = true; });
+      api.post('/api/mobile/messages/read-all').then(function () {
+        self.list.forEach(function (it) {
+          it.is_read = true;
+        });
         self.stats = { unread: 0, unread_total: 0 };
         utils.toast('已全部标记已读');
-      }).catch(function () {
-        utils.toast('操作失败');
-      }).finally(function () {
+      }).catch(function (e) {
+        utils.toast((e && e.message) || '操作失败');
+      }).then(function () {
         self.submitting = false;
-      });
-    },
-    delMsg: function (item) {
-      var self = this;
-      api.del('/api/mobile/messages/' + item.id).then(function () {
-        self.list = self.list.filter(function (it) { return it.id !== item.id; });
-        if (self.openId === item.id) { self.openId = null; self.curOffset = 0; }
-        utils.toast('已删除');
-      }).catch(function () {
-        utils.toast('删除失败');
       });
     },
     navigateRelated: function (item) {
@@ -234,12 +164,64 @@ window.Pages.message = {
         weekly_inspection: '/weekly_detail?id=' + rid,
         hazard: '/hazard_detail?id=' + rid,
         work_order: '/work_order_detail?id=' + rid,
+        workorder: '/work_order_detail?id=' + rid,
         approval: '/approval_detail?id=' + rid,
-        approval_detail: '/approval_detail?id=' + rid,
         emergency: '/emergency_form?id=' + rid
       };
       var path = map[rt];
       if (path) utils.go(path);
     }
-  }
+  },
+  mounted: function () {
+    this.load();
+  },
+  template: `
+<div class="page">
+  <div v-if="loading" class="empty-state">
+    <div class="loading-spinner"></div>
+    <div class="muted" style="margin-top:12px;">加载中...</div>
+  </div>
+
+  <div v-else-if="error" class="empty-state">
+    <div class="text-danger">❌ 加载失败</div>
+    <button class="btn btn-primary" style="margin-top:16px;" @click="load">重试</button>
+  </div>
+
+  <template v-else>
+    <!-- 统计栏 -->
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="text-2">未读 <span class="text-primary fw6">{{ unreadCount }}</span> 条</div>
+      <button class="btn btn-ghost btn-sm" :disabled="submitting" @click="markAllRead">全部已读</button>
+    </div>
+
+    <!-- 分类 Tab -->
+    <div class="seg">
+      <span v-for="t in tabs" :key="t.key" class="seg-item" :class="tabClass(t.key)" @click="onTab(t.key)">
+        {{ t.label }}
+        <span v-if="showBadge(t.key)" class="badge tag-pending" style="margin-left:4px;">{{ catBadge(t.key) }}</span>
+      </span>
+    </div>
+
+    <div v-if="showEmpty" class="empty-state">
+      <div class="muted">📩 暂无消息</div>
+    </div>
+
+    <div v-else class="list">
+      <div v-for="item in list" :key="item.id" class="list-item card" :class="isUnread(item) ? 'unread' : ''" @click="onTap(item)">
+        <div class="li-row">
+          <div class="li-icon" :style="{background: catColor(item.category)}">{{ catIcon(item.category) }}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="li-row">
+              <span class="li-title">{{ item.title }}</span>
+              <span v-if="isUnread(item)" class="badge tag-pending">未读</span>
+            </div>
+            <div class="li-sub text-2" style="margin-top:4px;">{{ item.content }}</div>
+            <div class="li-sub muted" style="margin-top:4px;">{{ msgTime(item) }} · {{ relativeTime(item) }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+`
 };

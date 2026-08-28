@@ -1,7 +1,7 @@
-// 隐患详情 → H5（Vue3 global build，按契约 #12 重写）
+// 隐患详情 → H5（Vue3 global build，按契约 v2 重写）
 // GET /api/mobile/hazards/:id  api.getHazard(id)  → 隐患信息 + 关联 workOrder
-// 验收：verifyDescription 输入 → api.post('/api/mobile/hazards/'+id+'/verify',{verifyDescription,pass}) 闭环/打回
-// 状态展示统一走 utils.statusLabel / utils.statusColor；风险展示走 utils.levelColor / utils.levelLabel
+// .detail-row 展示 L/S/E/B/level/deadline/责任人；关联 workOrder 卡（status pending/rectifying/verifying/closed）+ 跳转 work_order_detail
+// 铁律：v-model 仅限 input/select/textarea；模板无裸 && || < >；禁止 SVG；根 <div class="page">
 window.Pages = window.Pages || {};
 window.Pages.hazard_detail = {
   name: 'hazard_detail',
@@ -9,17 +9,22 @@ window.Pages.hazard_detail = {
   data: function () {
     return {
       loading: true,
-      hazard: null,
-      actioning: false,
-      verifyDescription: ''
+      error: '',
+      hazard: null
     };
   },
   computed: {
     hasData: function () { return !!this.hazard; },
     hasWorkOrder: function () { return !!(this.hazard && this.hazard.workOrder); },
     riskLevel: function () { return this.hazard ? (this.hazard.risk_level || '') : ''; },
-    levelLabel: function () { return utils.levelLabel(this.riskLevel); },
-    levelColor: function () { return utils.levelColor(this.riskLevel); },
+    riskTagClass: function () {
+      var m = { low: 'tag-low', general: 'tag-general', major: 'tag-major', critical: 'tag-critical' };
+      return m[String(this.riskLevel || '').toLowerCase()] || 'tag-low';
+    },
+    riskLabel: function () {
+      var m = { low: '低', general: '一般', major: '较大', critical: '重大' };
+      return m[String(this.riskLevel || '').toLowerCase()] || String(this.riskLevel || '');
+    },
     lseL: function () { return this.hazard ? (this.hazard.lse_L || this.hazard.lseL || 0) : 0; },
     lseS: function () { return this.hazard ? (this.hazard.lse_S || this.hazard.lseS || 0) : 0; },
     lseE: function () { return this.hazard ? (this.hazard.lse_E || this.hazard.lseE || 0) : 0; },
@@ -28,46 +33,58 @@ window.Pages.hazard_detail = {
       if (b) return b;
       return (Number(this.lseL) || 0) * (Number(this.lseS) || 0) * (Number(this.lseE) || 0);
     },
-    isPending: function () { return this.hazard && this.hazard.status === 'pending'; },
-    isRectifying: function () { return this.hazard && this.hazard.status === 'rectifying'; },
-    isVerifying: function () { return this.hazard && this.hazard.status === 'verifying'; },
-    isClosed: function () { return this.hazard && this.hazard.status === 'closed'; },
     workOrderNo: function () {
       var w = this.hazard && this.hazard.workOrder;
       return w ? (w.order_no || w.orderNo || w.id || '-') : '-';
     },
+    woStatusTagClass: function () {
+      var w = this.hazard && this.hazard.workOrder;
+      var s = w ? w.status : '';
+      var m = { pending: 'tag-pending', rectifying: 'tag-info', verifying: 'tag-warning', closed: 'tag-ok' };
+      return m[String(s || '')] || 'tag-pending';
+    },
+    woStatusLabel: function () {
+      var w = this.hazard && this.hazard.workOrder;
+      var s = w ? w.status : '';
+      var m = { pending: '待整改', rectifying: '整改中', verifying: '待验收', closed: '已关闭' };
+      return m[String(s || '')] || '待处理';
+    },
     photoList: function () {
       var p = this.hazard ? this.hazard.photos : null;
       if (!p) return [];
-      if (typeof p === 'string') {
-        try { p = JSON.parse(p); } catch (e) { return []; }
-      }
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { return []; } }
       return Array.isArray(p) ? p : [];
     },
-    showPhotos: function () { return this.photoList.length > 0; }
+    showPhotos: function () { return this.photoList.length > 0; },
+    showError: function () { return !!this.error && !this.hasData; },
+    rectifyPhotoList: function () { return this.parsePhotos(this.hazard && this.hazard.workOrder && this.hazard.workOrder.rectify_photos); },
+    verifyPhotoList: function () { return this.parsePhotos(this.hazard && this.hazard.workOrder && this.hazard.workOrder.verify_photos); }
   },
   methods: {
-    load: async function () {
+    parsePhotos: function (p) {
+      if (!p) return [];
+      if (Array.isArray(p)) return p;
+      try { return JSON.parse(p); } catch (e) { return []; }
+    },
+    load: function () {
       var self = this;
       var id = (this.query && this.query.id) || '';
-      if (!id) { this.loading = false; this.hazard = null; return; }
+      if (!id) { this.loading = false; this.hazard = null; this.error = '缺少隐患 ID'; return; }
       this.loading = true;
-      try {
-        var d = await api.getHazard(id);
+      this.error = '';
+      return api.getHazard(id).then(function (d) {
         self.hazard = d.data || d || null;
-      } catch (e) {
-        utils.toast(e && e.message ? e.message : '加载失败');
+      }).catch(function (e) {
+        self.error = (e && e.message) ? e.message : '加载失败';
         self.hazard = null;
-      } finally {
+      }).then(function () {
         self.loading = false;
-      }
+      });
     },
-    statusLabelOf: function (s) { return utils.statusLabel(s); },
-    statusColorOf: function (s) { return utils.statusColor(s); },
     hazardNoOf: function () { return (this.hazard && (this.hazard.hazard_no || this.hazard.hazardNo)) || '-'; },
     deviceNameOf: function () { return (this.hazard && (this.hazard.device_name || this.hazard.deviceName)) || '-'; },
     deviceCodeOf: function () { return (this.hazard && (this.hazard.device_code || this.hazard.deviceCode)) || '-'; },
-    locationOf: function () { return (this.hazard && (this.hazard.location || this.hazard.gps_location)) || '-'; },
+    locationOf: function () { return (this.hazard && (this.hazard.location || this.hazard.device_location || this.hazard.gps_location)) || '-'; },
     hazardTypeOf: function () { return (this.hazard && (this.hazard.hazard_type || this.hazard.hazardType)) || '-'; },
     descOf: function () { return (this.hazard && this.hazard.description) || '-'; },
     finderOf: function () { return (this.hazard && (this.hazard.finder_name || this.hazard.finderName)) || '-'; },
@@ -84,116 +101,79 @@ window.Pages.hazard_detail = {
       var wid = w.id || w.order_id || w.orderId;
       if (wid) utils.go('/work_order_detail?id=' + wid);
     },
-    startRectify: async function () {
-      if (this.actioning) return;
-      if (!(await utils.confirm('确认开始整改该隐患？'))) return;
-      await this.pushStatus('rectifying', '已开始整改');
-    },
-    advance: async function () {
-      if (this.actioning) return;
-      if (!(await utils.confirm('确认提交整改并报送验收？'))) return;
-      await this.pushStatus('verifying', '已报送验收');
-    },
-    verify: async function (pass) {
-      if (this.actioning) return;
-      if (!this.verifyDescription || !this.verifyDescription.trim()) { utils.toast('请填写验收意见'); return; }
-      var tip = pass ? '确认验收通过并闭环关闭？' : '确认不通过并打回整改？';
-      if (!(await utils.confirm(tip))) return;
-      this.actioning = true;
-      var self = this;
-      try {
-        var id = self.query.id;
-        await api.post('/api/mobile/hazards/' + id + '/verify', {
-          verifyDescription: self.verifyDescription,
-          pass: pass
-        });
-        utils.toast(pass ? '验收通过，隐患已闭环' : '已打回整改');
-        self.verifyDescription = '';
-        await self.load();
-      } catch (e) {
-        utils.toast(e && e.message ? e.message : '操作失败');
-      } finally {
-        self.actioning = false;
-      }
-    },
-    pushStatus: async function (status, msg) {
-      this.actioning = true;
-      var self = this;
-      try {
-        var id = self.query.id;
-        await api.submitHazard(id, { status: status });
-        utils.toast(msg);
-        await self.load();
-      } catch (e) {
-        utils.toast(e && e.message ? e.message : '操作失败');
-      } finally {
-        self.actioning = false;
-      }
-    }
+    goHazardList: function () { utils.go('/hazard'); }
   },
   mounted: function () { this.load(); },
   template: `
-  <div class="page hd">
-    <div v-if="loading" class="empty-state"><span class="muted">加载中...</span></div>
+  <div class="page">
+    <div v-if="loading" class="loading-wrap"><span class="spinner"></span><span>加载中...</span></div>
+    <div v-else-if="showError" class="error-wrap">
+      <div class="em-ic">⚠️</div>
+      <div class="em-tip">{{ error }}</div>
+      <button class="btn btn-o er-btn" @click="load">重试</button>
+    </div>
     <template v-else-if="hasData">
       <!-- 顶部风险卡 -->
-      <div class="risk-hero" :style="{ background: levelColor }">
-        <div class="rh-level">{{ levelLabel }}</div>
-        <div class="rh-r">R = L × S × E = <b>{{ lseB }}</b></div>
-        <div class="rh-lse"><span>L {{ lseL }}</span><span>S {{ lseS }}</span><span>E {{ lseE }}</span></div>
+      <div class="card" :style="{ borderLeft: '4px solid var(--primary)' }">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span class="tag" :class="riskTagClass">{{ riskLabel }}</span>
+          <span class="muted">风险值 R = {{ lseB }}</span>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:6px">L {{ lseL }} · S {{ lseS }} · E {{ lseE }}</div>
       </div>
 
       <!-- 基本信息 -->
-      <div class="section-title">隐患基本信息</div>
       <div class="card">
-        <div class="info-row"><span class="label">隐患编号</span><span class="value">{{ hazardNoOf }}</span></div>
-        <div class="info-row"><span class="label">设备名称</span><span class="value">{{ deviceNameOf }}</span></div>
-        <div class="info-row"><span class="label">设备编号</span><span class="value">{{ deviceCodeOf }}</span></div>
-        <div class="info-row"><span class="label">位置</span><span class="value">{{ locationOf }}</span></div>
-        <div class="info-row"><span class="label">隐患类型</span><span class="value">{{ hazardTypeOf }}</span></div>
-        <div class="info-row"><span class="label">隐患描述</span><span class="value multi">{{ descOf }}</span></div>
-        <div class="info-row"><span class="label">发现人</span><span class="value">{{ finderOf }}</span></div>
-        <div class="info-row"><span class="label">发现时间</span><span class="value">{{ findTimeOf }}</span></div>
+        <div class="card-h"><span class="card-t">📌 隐患基本信息</span></div>
+        <div class="detail-row"><span class="dk">隐患编号</span><span class="dv">{{ hazardNoOf }}</span></div>
+        <div class="detail-row"><span class="dk">设备名称</span><span class="dv">{{ deviceNameOf }}</span></div>
+        <div class="detail-row"><span class="dk">设备编号</span><span class="dv">{{ deviceCodeOf }}</span></div>
+        <div class="detail-row"><span class="dk">位置</span><span class="dv">{{ locationOf }}</span></div>
+        <div class="detail-row"><span class="dk">隐患类型</span><span class="dv">{{ hazardTypeOf }}</span></div>
+        <div class="detail-row"><span class="dk">隐患描述</span><span class="dv">{{ descOf }}</span></div>
+        <div class="detail-row"><span class="dk">发现人</span><span class="dv">{{ finderOf }}</span></div>
+        <div class="detail-row"><span class="dk">发现时间</span><span class="dv">{{ findTimeOf }}</span></div>
       </div>
 
-      <!-- 整改信息 -->
-      <div class="section-title">整改信息</div>
+      <!-- LSEB 与整改 -->
       <div class="card">
-        <div class="info-row"><span class="label">当前状态</span><span class="value"><span class="badge" :style="{ background: statusColorOf(hazard.status), color: '#fff' }">{{ statusLabelOf(hazard.status) }}</span></span></div>
-        <div class="info-row"><span class="label">整改期限</span><span class="value">{{ deadlineOf }}</span></div>
-        <div class="info-row"><span class="label">整改责任人</span><span class="value">{{ ownerOf }}</span></div>
-        <div class="info-row"><span class="label">整改建议</span><span class="value multi">{{ adviceOf }}</span></div>
+        <div class="card-h"><span class="card-t">🧮 风险评估与整改</span></div>
+        <div class="detail-row"><span class="dk">L 可能性</span><span class="dv">{{ lseL }}</span></div>
+        <div class="detail-row"><span class="dk">S 严重性</span><span class="dv">{{ lseS }}</span></div>
+        <div class="detail-row"><span class="dk">E 暴露频次</span><span class="dv">{{ lseE }}</span></div>
+        <div class="detail-row"><span class="dk">风险值 B</span><span class="dv">{{ lseB }}</span></div>
+        <div class="detail-row"><span class="dk">风险等级</span><span class="dv"><span class="tag" :class="riskTagClass">{{ riskLabel }}</span></span></div>
+        <div class="detail-row"><span class="dk">整改期限</span><span class="dv">{{ deadlineOf }}</span></div>
+        <div class="detail-row"><span class="dk">整改责任人</span><span class="dv">{{ ownerOf }}</span></div>
+        <div class="detail-row"><span class="dk">整改建议</span><span class="dv">{{ adviceOf }}</span></div>
       </div>
 
       <!-- 关联工单 -->
-      <div v-if="hasWorkOrder" class="section-title">关联工单</div>
-      <div v-if="hasWorkOrder" class="card wo-card" @click="goWorkOrder">
-        <div class="info-row"><span class="label">工单号</span><span class="value">{{ workOrderNo }} <span class="link">查看 ›</span></span></div>
-        <div class="info-row"><span class="label">工单状态</span><span class="value"><span class="badge" :style="{ background: statusColorOf(hazard.workOrder.status), color: '#fff' }">{{ statusLabelOf(hazard.workOrder.status) }}</span></span></div>
+      <div v-if="hasWorkOrder" class="card" @click="goWorkOrder">
+        <div class="card-h"><span class="card-t">🔧 关联整改工单</span></div>
+        <div class="detail-row"><span class="dk">工单号</span><span class="dv">{{ workOrderNo }} <span class="link" style="color:var(--primary)">查看 ›</span></span></div>
+        <div class="detail-row"><span class="dk">工单状态</span><span class="dv"><span class="tag" :class="woStatusTagClass">{{ woStatusLabel }}</span></span></div>
+        <div v-if="rectifyPhotoList.length" class="detail-row"><span class="dk">整改照片</span><span class="dv">{{ rectifyPhotoList.length }} 张</span></div>
+        <div v-if="verifyPhotoList.length" class="detail-row"><span class="dk">验收照片</span><span class="dv">{{ verifyPhotoList.length }} 张</span></div>
+      </div>
+      <div v-else class="card">
+        <div class="card-h"><span class="card-t">🔧 关联整改工单</span></div>
+        <div class="muted" style="font-size:13px">尚未生成整改工单</div>
       </div>
 
       <!-- 现场照片 -->
-      <div v-if="showPhotos" class="section-title">现场照片</div>
-      <div v-if="showPhotos" class="photo-grid">
-        <img v-for="(p, idx) in photoList" :key="idx" class="photo" :src="p" />
+      <div v-if="showPhotos" class="card">
+        <div class="card-h"><span class="card-t">📷 现场照片</span></div>
+        <div class="photo-wall">
+          <div v-for="(p, idx) in photoList" :key="idx" class="photo-item"><img :src="p" /></div>
+        </div>
       </div>
 
-      <!-- 验收意见（仅待验收时） -->
-      <div class="card" v-if="isVerifying">
-        <div class="form-label">验收意见 *</div>
-        <textarea class="fi-input" v-model="verifyDescription" placeholder="请填写验收意见（通过或不通过均须填写）"></textarea>
-      </div>
-
-      <!-- 操作条 -->
-      <div class="action-bar">
-        <button v-if="isPending" class="btn-primary" :disabled="actioning" @click="startRectify">开始整改</button>
-        <button v-if="isRectifying" class="btn-primary" :disabled="actioning" @click="advance">提交整改（报验）</button>
-        <button v-if="isVerifying" class="btn-primary" :disabled="actioning" @click="verify(true)">验收通过（闭环）</button>
-        <button v-if="isVerifying" class="btn-danger" :disabled="actioning" @click="verify(false)">不通过（打回）</button>
-        <div v-if="isClosed" class="closed-badge">✓ 隐患已闭环关闭</div>
+      <div style="padding:12px">
+        <button class="btn-ghost" @click="goHazardList">返回隐患列表</button>
       </div>
     </template>
-    <div v-else class="empty-state"><span class="muted">未找到隐患数据</span></div>
+    <div v-else class="empty-wrap"><div class="em-ic">🔍</div><div class="em-tip">未找到隐患数据</div></div>
   </div>
   `
 };

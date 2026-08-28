@@ -1,6 +1,6 @@
-// login.js — 特安助 H5 登录页
-// 依据 H5_REWRITE_CONTRACT.md 重写：账号/密码 → POST /api/login → Store.setAuth → #/
-// 铁律：v-model 仅用于 input；模板内无裸 && || < >；页面禁止 SVG（用 emoji）；根节点 .page
+// login.js — 电梯安全管理 AI 系统 H5 登录页
+// 依据 H5_FULL_REWRITE_CONTRACT_v2.md 重写
+// 铁律：v-model 仅用于 input；模板内无裸 && || < >；禁止 SVG（用 emoji）；根节点 .page
 window.Pages = window.Pages || {};
 
 window.Pages.login = {
@@ -17,15 +17,12 @@ window.Pages.login = {
   },
 
   computed: {
-    // 密码框类型：明文 / 密文
     pwdInputType: function () {
       return this.showPwd ? 'text' : 'password';
     },
-    // 眼睛图标（emoji 替代 SVG）
     eyeIcon: function () {
       return this.showPwd ? '🙈' : '👁️';
     },
-    // 登录按钮禁用态（空账号 / 空密码 / 加载中）—— 不放裸 || 到模板
     btnDisabled: function () {
       return this.loading || !this.account || !this.password;
     }
@@ -34,20 +31,18 @@ window.Pages.login = {
   methods: {
     go: function (p) { utils.go(p); },
 
-    // 已登录则直接进入工作台
     load: function () {
       if (Store.getToken()) { location.hash = '#/'; }
     },
 
-    // 切换密码可见性
-    togglePwd: function () { this.showPwd = !this.showPwd; },
+    togglePwd: function () {
+      this.showPwd = !this.showPwd;
+    },
 
-    // 微信登录（暂未配置）
     onWechatLogin: function () {
       utils.toast('微信登录暂未配置');
     },
 
-    // 账号密码登录
     onLogin: async function () {
       var self = this;
       if (!self.account) { utils.toast('请输入账号'); return; }
@@ -61,7 +56,6 @@ window.Pages.login = {
         });
         if (res && res.token && res.user) {
           Store.setAuth(res.token, res.user);
-          // 先跳转后弹 toast —— 保证 hashchange 一定被触发（toast 是锦上添花）
           try { location.hash = ''; } catch (e) {}
           location.hash = '#/';
           setTimeout(function () { utils.toast('登录成功'); }, 50);
@@ -82,39 +76,33 @@ window.Pages.login = {
     this.load();
   },
 
-  template: `
-<div class="page login-page">
-  <div class="login-content" style="width:100%;max-width:320px;">
-    <div class="login-logo-wrap" style="text-align:center;margin-bottom:18px;">
-      <div class="login-logo-icon" style="font-size:46px;line-height:1;">🛡️</div>
-      <h1 class="login-title">特安助</h1>
-      <p class="login-sub">电梯安全管理平台</p>
-    </div>
-
-    <div class="login-form">
-      <div class="login-input-wrap">
-        <span class="login-ico">👤</span>
-        <input class="login-input" type="text" v-model="account" placeholder="请输入账号 / 邮箱"
-               autocomplete="username" @keyup.enter="onLogin" />
-      </div>
-
-      <div class="login-input-wrap">
-        <span class="login-ico">🔒</span>
-        <input class="login-input" :type="pwdInputType" v-model="password" placeholder="请输入密码"
-               autocomplete="current-password" @keyup.enter="onLogin" />
-        <span class="login-eye" :class="{ active: showPwd }" @click="togglePwd">{{ eyeIcon }}</span>
-      </div>
-
-      <button class="btn-primary" :disabled="btnDisabled" @click="onLogin">
-        <span v-if="loading">登录中...</span>
-        <span v-else>登 录</span>
-      </button>
-
-      <button class="login-wechat" @click="onWechatLogin">💬 微信登录</button>
-    </div>
-
-    <div class="login-foot">特安助 · 特种设备安全管理平台</div>
-  </div>
-</div>
-`
+  template: '\
+<div class="page login-page">\
+  <div class="login-box">\
+    <div class="login-logo">\
+      <div class="ic">🛡️</div>\
+    </div>\
+    <h1>特安助</h1>\
+    <p class="sub">电梯安全管理平台</p>\
+    <div>\
+      <input type="text" class="fi-input" v-model="account" placeholder="请输入账号 / 邮箱"\
+             autocomplete="username" @keyup.enter="onLogin" style="margin-bottom:12px;" />\
+      <div style="position:relative;margin-bottom:14px;">\
+        <input :type="pwdInputType" class="fi-input" v-model="password" placeholder="请输入密码"\
+               autocomplete="current-password" @keyup.enter="onLogin" style="margin-bottom:0;padding-right:40px;" />\
+        <span @click="togglePwd" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;cursor:pointer;">\
+          {{ eyeIcon }}\
+        </span>\
+      </div>\
+      <button class="btn-primary" :disabled="btnDisabled" @click="onLogin">\
+        <span v-if="loading">登录中...</span>\
+        <span v-else>登 录</span>\
+      </button>\
+      <div class="login-3p">\
+        <button class="btn-ghost" style="flex:1;padding:9px 12px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-2);cursor:pointer;" @click="onWechatLogin">💬 微信登录</button>\
+      </div>\
+      <p class="tip">特安助 · 特种设备安全管理平台</p>\
+    </div>\
+  </div>\
+</div>'
 };

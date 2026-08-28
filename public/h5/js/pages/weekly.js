@@ -1,7 +1,6 @@
-// pages/weekly.js — 周排查列表
-// GET /api/mobile/weekly → {data:[...]}，按 status 客户端筛选（all/pending/ongoing/completed）
-// 状态统一走 utils.statusLabel / utils.statusColor
-// 点击项 → /weekly_form?id=（weekly_form 支持查看/继续填报）
+// pages/weekly.js — 周排查列表 M-09
+// GET /api/mobile/weekly?status&weekNo → {data:[{id,inspection_no,device_code,device_name,week_no,inspector_name,status}]}
+// 点击项 → /weekly_form?id=（编辑/查看模式）
 (function () {
   window.Pages = window.Pages || {};
 
@@ -12,28 +11,30 @@
     data: function () {
       return {
         loading: true,
+        error: false,
         list: [],
-        activeStatus: 'all',
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        hasMore: false,
+        status: '',
+        weekNo: '',
         statusOptions: [
-          { key: 'all', label: '全部' },
-          { key: 'pending', label: '待检' },
-          { key: 'ongoing', label: '进行中' },
+          { key: '',          label: '全部' },
+          { key: 'pending',   label: '待检' },
+          { key: 'ongoing',   label: '进行中' },
           { key: 'completed', label: '已完成' }
         ]
       };
     },
 
     computed: {
-      filteredList: function () {
-        if (this.activeStatus === 'all') return this.list;
-        var s = this.activeStatus;
-        var self = this;
-        return this.list.filter(function (x) {
-          return String(x.status || '').toLowerCase() === s;
-        });
-      },
       showLoading: function () { return this.loading && this.list.length === 0; },
-      showEmpty: function () { return !this.loading && this.filteredList.length === 0; }
+      showEmpty:   function () { return !this.loading && this.list.length === 0; },
+      showList:    function () { return !this.loading && this.list.length > 0; },
+      showError:   function () { return this.error && this.list.length === 0; },
+      hasTotal:    function () { return this.total > 0; },
+      canLoadMore: function () { return this.showList && this.hasMore; }
     },
 
     mounted: function () { this.load(); },
@@ -42,82 +43,114 @@
       load: function () {
         var self = this;
         self.loading = true;
-        api.getWeekly({ page: 1, pageSize: 50 })
-          .then(function (d) { self.list = (d && d.data) || []; })
-          .catch(function () { if (!self._gone) utils.toast('加载失败'); })
-          .finally(function () { if (!self._gone) self.loading = false; });
+        self.error = false;
+        api.getWeekly({
+          page: self.page,
+          pageSize: self.pageSize,
+          status: self.status,
+          weekNo: self.weekNo
+        }).then(function (d) {
+          var data = d && d.data ? d.data : (Array.isArray(d) ? d : []);
+          if (self.page === 1) {
+            self.list = data;
+          } else {
+            self.list = self.list.concat(data);
+          }
+          self.total = d && d.total != null ? d.total : data.length;
+          self.hasMore = self.list.length < self.total;
+          self.loading = false;
+        }).catch(function () {
+          self.error = true;
+          self.loading = false;
+        });
+      },
+
+      loadMore: function () {
+        if (this.loading || !this.hasMore) return;
+        this.page++;
+        this.load();
       },
 
       setStatus: function (key) {
-        if (this.activeStatus === key) return;
-        this.activeStatus = key;
+        if (this.status === key) return;
+        this.status = key;
+        this.page = 1;
+        this.list = [];
+        this.load();
       },
-      tabClass: function (key) { return { active: this.activeStatus === key }; },
 
-      // 列表行 key（避免模板里写 ||）
+      tabClass: function (key) { return { 'seg-btn': true, on: this.status === key }; },
+
       itemKey: function (item, i) {
-        return (item && item.id != null) ? String(item.id) : ('row_' + i);
+        return item && item.id != null ? String(item.id) : ('row_' + i);
       },
 
-      weekText: function (item) { return item.week_no || item.weekNo || '周排查'; },
-      deviceText: function (item) {
-        var name = item.device_name || '未关联设备';
-        var code = item.device_code || '';
-        return code ? (name + '（' + code + '）') : name;
-      },
-      inspectorText: function (item) { return item.inspector_name || '—'; },
-      dateText: function (item) {
-        return item.inspection_date || item.check_date || item.created_at || '';
+      itemTitle: function (item) {
+        if (item.week_no) return '第 ' + item.week_no + ' 周排查';
+        return item.inspection_no || ('周排查 #' + item.id);
       },
 
-      statusText: function (s) { return utils.statusLabel(s); },
+      itemSub: function (item) {
+        var p = [];
+        if (item.device_name) p.push(item.device_name);
+        if (item.device_code) p.push('(' + item.device_code + ')');
+        if (item.inspector_name) p.push(item.inspector_name);
+        return p.join(' ');
+      },
+
+      itemSub2: function (item) {
+        var p = [];
+        if (item.week_no) p.push('第' + item.week_no + '周');
+        if (item.created_at) p.push(item.created_at);
+        return p.join(' · ');
+      },
+
+      statusText: function (s) { return utils.statusLabel(s || ''); },
       statusStyle: function (s) {
-        return { background: utils.statusColor(s), color: '#fff' };
+        return { background: utils.statusColor(s || ''), color: '#fff' };
       },
 
-      goForm: function (id) {
-        utils.go('/weekly_form' + (id ? ('?id=' + id) : ''));
-      }
+      itemTagClass: function (item) {
+        var s = item.status;
+        if (s === 'pending')   return 'tag-pending';
+        if (s === 'ongoing')   return 'tag-info';
+        if (s === 'completed') return 'tag-completed';
+        return 'tag-draft';
+      },
+
+      itemClick: function (item) {
+        utils.go('/weekly_form?id=' + item.id);
+      },
+
+      goForm: function () { utils.go('/weekly_form'); },
+      goCheck: function () { utils.go('/check'); }
     },
 
     unmounted: function () { this._gone = true; },
 
     template: [
       '<div class="page">',
-
-        // === 状态筛选 ===
-        '<div class="check-tabs" style="margin-bottom:10px">',
-          '<div v-for="t in statusOptions" v-bind:key="t.key" class="check-tab" v-bind:class="tabClass(t.key)" v-on:click="setStatus(t.key)">{{t.label}}</div>',
+        '<div class="seg">',
+          '<button v-for="t in statusOptions" :key="t.key" :class="tabClass(t.key)" @click="setStatus(t.key)">{{t.label}}</button>',
         '</div>',
-
-        // === 加载态 ===
-        '<div v-if="showLoading" class="empty-state"><div class="empty-title">加载中...</div></div>',
-
-        // === 空状态 ===
-        '<div v-else-if="showEmpty" class="empty-state">',
-          '<div class="empty-icon">🗓️</div>',
-          '<div class="empty-title">暂无周排查</div>',
-          '<div class="empty-sub">点击右下角按钮新建周排查</div>',
-        '</div>',
-
-        // === 列表 ===
+        '<div v-if="hasTotal" style="font-size:12px;color:var(--text-3);padding:0 0 8px">共 {{total}} 条记录</div>',
+        '<div v-if="showLoading" style="text-align:center;padding:60px 0"><div style="font-size:36px">⏳</div><div style="color:var(--text-3);margin-top:10px">加载中...</div></div>',
+        '<div v-else-if="showError" style="text-align:center;padding:60px 0"><div style="font-size:36px">⚠️</div><div style="margin-top:10px">加载失败</div><button class="btn-ghost btn-sm" style="margin-top:12px;width:auto;display:inline-block;padding:8px 20px" @click="load">重试</button></div>',
+        '<div v-else-if="showEmpty" style="text-align:center;padding:60px 0"><div style="font-size:48px">📅</div><div style="margin-top:10px;font-size:15px">暂无周排查记录</div><div style="color:var(--text-3);margin-top:4px;font-size:13px">点击右下角按钮新建周排查</div></div>',
         '<div v-else class="list">',
-          '<div v-for="(item, i) in filteredList" v-bind:key="itemKey(item, i)" class="list-item card" v-on:click="goForm(item.id)">',
+          '<div v-for="(item,i) in list" :key="itemKey(item,i)" class="list-item" @click="itemClick(item)">',
             '<div class="li-body">',
-              '<div class="li-title">{{weekText(item)}}</div>',
-              '<div class="li-sub">{{deviceText(item)}}</div>',
-              '<div class="li-sub">{{inspectorText(item)}} · {{dateText(item)}}</div>',
+              '<div class="li-title">{{itemTitle(item)}}</div>',
+              '<div class="li-sub">{{itemSub(item)}}</div>',
+              '<div class="li-sub">{{itemSub2(item)}}</div>',
             '</div>',
-            '<div class="li-extra">',
-              '<span class="badge" v-bind:style="statusStyle(item.status)">{{statusText(item.status)}}</span>',
-            '</div>',
+            '<div class="li-extra"><span class="tag" :style="statusStyle(item.status)">{{statusText(item.status)}}</span></div>',
             '<div class="li-arrow">›</div>',
           '</div>',
         '</div>',
-
-        // === 新建 FAB ===
-        '<button class="fab-pill" v-on:click="goForm()"><span style="font-size:18px">＋</span> 新建周排查</button>',
-
+        '<div v-if="canLoadMore" style="text-align:center;padding:14px 0 80px"><button class="btn-ghost btn-sm" style="width:auto;display:inline-block;padding:8px 24px" @click="loadMore">{{loading ? "加载中..." : "加载更多"}}</button></div>',
+        '<div v-if="!hasMore" style="height:80px"></div>',
+        '<button class="fab" @click="goForm" title="新建周排查">+</button>',
       '</div>'
     ].join('')
   };
