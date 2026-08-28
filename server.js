@@ -4679,6 +4679,20 @@ function ensureSeeded() {
   if (cnt === 0) {
     console.log('[启动] 数据库为空，执行首次初始化播种...');
     require('./seed');
+    return;
+  }
+  // 全栈打通：电梯安全SaaS业务表可能为空（AI合规表已有数据但SaaS表未播种）
+  // 每次启动检测空表并幂等补种，确保 CloudBase 重建/重启后业务数据始终在线
+  let devCnt = 0;
+  try { devCnt = database.prepare('SELECT COUNT(*) AS c FROM elevator_device').get().c; }
+  catch (e) { devCnt = 0; }
+  if (devCnt === 0) {
+    console.log('[启动] 电梯安全SaaS业务表为空，执行全栈业务种子...');
+    try {
+      require('./scripts/seed_full')(database);
+      // 阶段4治理：补种同时把演示弱密码改为强密码(幂等)
+      require('./scripts/reset_pw')(database);
+    } catch (e) { console.error('[启动] 全栈业务种子失败:', e.message); }
   }
 }
 

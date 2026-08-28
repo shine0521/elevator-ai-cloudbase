@@ -198,6 +198,10 @@ window.Pages.home = {
         <div class="qc-ic">🔍</div>\
         <div class="qc-t">设备扫码</div>\
       </div>\
+      <div class="quick-card" @click="go(\'/discriminate_history\')">\
+        <div class="qc-ic">🧠</div>\
+        <div class="qc-t">AI判别</div>\
+      </div>\
     </div>\
   </template>\
 </div>'
