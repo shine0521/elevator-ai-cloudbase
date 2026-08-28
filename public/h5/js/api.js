@@ -28,24 +28,26 @@
       utils.toast('\u7f51\u7edc\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc');
       throw new Error('NETWORK_ERROR');
     }
-    if (res.status === 401) {
-      // 401 仅清 token，不再弹 toast —— 路由层会自动跳回登录页，toast 是冗余信息
-      Store.logout();
-      throw new Error('UNAUTHORIZED');
-    }
     var json;
     try {
       json = await res.json();
     } catch (e) {
       json = { success: res.ok };
     }
-    if (res.status >= 500) {
-      utils.toast('\u670d\u52a1\u7aef\u9519\u8bef');
-      throw new Error('SERVER_ERROR');
-    }
+    // 业务层错误（4xx）：toast 错误信息再 throw，让调用方 catch 块可见
     if (json && json.success === false) {
       utils.toast(json.error || '\u64cd\u4f5c\u5931\u8d25');
       throw new Error(json.error || 'BUSINESS_ERROR');
+    }
+    // 401 未认证：清除本地 token，由路由层跳回登录页（不在此处 toast，避免与 logout() 跳转冲突）
+    if (res.status === 401) {
+      Store.logout();
+      throw new Error(json && json.error || '\u65e0\u6548\u7684\u767b\u5f55\u51ed\u8bc1');
+    }
+    // 5xx 服务端错误
+    if (res.status >= 500) {
+      utils.toast(json && json.error || '\u670d\u52a1\u7aef\u9519\u8bef');
+      throw new Error('SERVER_ERROR');
     }
     return json;
   }

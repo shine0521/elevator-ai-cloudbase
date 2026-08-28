@@ -333,6 +333,19 @@ select.fi-input { appearance: none; background-image: url("data:image/svg+xml,%3
 .login-box .err { color: var(--danger); font-size: 12px; text-align: center; margin-top: 8px; min-height: 16px; }
 .login-box .tip { text-align: center; color: var(--text-3); font-size: 11px; margin-top: 14px; }
 .login-3p { display: flex; gap: 10px; margin-top: 14px; }
+/* 登录失败抖动动画 */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  15%       { transform: translateX(-8px); }
+  30%       { transform: translateX(8px); }
+  45%       { transform: translateX(-6px); }
+  60%       { transform: translateX(6px); }
+  75%       { transform: translateX(-3px); }
+  90%       { transform: translateX(3px); }
+}
+.shake { animation: shake .45s ease-in-out; }
+/* 忘记密码链接 */
+.forgot-link { display: block; text-align: center; margin-top: 10px; font-size: 12px; color: var(--primary); text-decoration: none; cursor: pointer; }
 
 /* === 浮动操作按钮 === */
 .fab { position: fixed; right: 16px; bottom: 72px; width: 50px; height: 50px; border-radius: 50%; background: var(--primary); color: #fff; border: none; font-size: 24px; box-shadow: 0 4px 16px rgba(64,158,255,.4); cursor: pointer; z-index: 50; max-width: calc(480px - 32px); margin-left: auto; }

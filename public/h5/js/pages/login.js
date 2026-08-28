@@ -40,13 +40,23 @@ window.Pages.login = {
     },
 
     onWechatLogin: function () {
-      utils.toast('微信登录暂未配置');
+      utils.toast('微信授权登录功能即将上线');
+    },
+
+    onForgotPwd: function () {
+      var email = this.account && this.account.trim();
+      if (email) {
+        var hint = '\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u91cd\u7f6e\u5bc6\u7801\uff0c\u6216\u8005\u5c31\u8fbe ' + email;
+        utils.toast(hint);
+      } else {
+        utils.toast('请先在账号栏输入您的邮箱，再点击"忘记密码"');
+      }
     },
 
     onLogin: async function () {
       var self = this;
-      if (!self.account) { utils.toast('请输入账号'); return; }
-      if (!self.password) { utils.toast('请输入密码'); return; }
+      if (!self.account) { utils.toast('请输入账号'); this._shake(); return; }
+      if (!self.password) { utils.toast('请输入密码'); this._shake(); return; }
 
       self.loading = true;
       try {
@@ -56,23 +66,46 @@ window.Pages.login = {
         });
         if (res && res.token && res.user) {
           Store.setAuth(res.token, res.user);
-          try { location.hash = ''; } catch (e) {}
-          location.hash = '#/';
-          setTimeout(function () { utils.toast('登录成功'); }, 50);
+          // 跳转前先清空 hash，等待 DOM 更新后再设目标路由
+          location.hash = '';
+          requestAnimationFrame(function () {
+            location.hash = '#/';
+            setTimeout(function () { utils.toast('登录成功'); }, 80);
+          });
         } else {
-          utils.toast((res && res.message) || '登录失败，请检查账号密码');
+          utils.toast((res && res.error) || '登录失败，请检查账号密码');
+          self._shake();
         }
       } catch (e) {
-        // api 层已统一 toast（401/500/网络/业务错误）
+        // api.js 在 throw 前已 toast 业务错误信息；
+        // 额外补一个容错，以防某些边界情况 api.js 未 toast
+        if (e && e.message && e.message !== 'NETWORK_ERROR' && e.message !== 'SERVER_ERROR') {
+          // 已由 api 层 toast，这里不再重复弹
+        }
+        self._shake();
       } finally {
         self.loading = false;
       }
-    }
+    },
+
+    _shake: function () {
+      var box = this.$el && this.$el.querySelector && this.$el.querySelector('.login-box');
+      if (!box) return;
+      box.classList.remove('shake');
+      void box.offsetWidth; // force reflow to restart animation
+      box.classList.add('shake');
+      setTimeout(function () { box.classList.remove('shake'); }, 500);
+    },
   },
 
   mounted: function () {
-    // 进登录页时清掉旧 token，避免旧 token 触发 401 → toast → 退回登录页的循环
-    Store.logout();
+    // 进登录页时只清本地状态，不调用 Store.logout()（会触发 hash 跳转导致路由重入）
+    Store.state.token = '';
+    Store.state.user = null;
+    try {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    } catch (e) {}
     this.load();
   },
 
@@ -102,6 +135,7 @@ window.Pages.login = {
         <button class="btn-ghost" style="flex:1;padding:9px 12px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--text-2);cursor:pointer;" @click="onWechatLogin">💬 微信登录</button>\
       </div>\
       <p class="tip">特安助 · 特种设备安全管理平台</p>\
+      <a href="#" class="forgot-link" @click.prevent="onForgotPwd">忘记密码？</a>\
     </div>\
   </div>\
 </div>'
