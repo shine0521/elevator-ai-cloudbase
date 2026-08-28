@@ -32,15 +32,17 @@ window.Pages.audit_list = {
     isSeg: function () {
       var self = this;
       return function (k) { return self.seg === k; };
-    },
-    segParam: function () {
-      if (this.seg === 'all') return '';
-      return this.seg;
     }
   },
 
   methods: {
     go: function (p) { utils.go(p); },
+
+    // 分段 → api 参数（后端 status 为小写：pending/approved/rejected）
+    segParam: function () {
+      if (this.seg === 'all') return '';
+      return this.seg.toLowerCase();
+    },
 
     load: function () {
       var self = this;

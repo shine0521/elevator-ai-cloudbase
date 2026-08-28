@@ -136,7 +136,7 @@ window.Pages.log_detail = {
     // 验真
     doVerify: function () {
       var self = this;
-      var sid = self.sealId.trim() || self.sealIdFromLog();
+      var sid = self.sealId.trim() || self.sealIdFromLog;
       if (!sid) { utils.toast('请输入 Seal ID'); return; }
       self.verifyLoading = true;
       self.verifyResult  = null;
@@ -258,7 +258,7 @@ window.Pages.log_detail = {
         <input
           v-model="sealId"
           class="inp"
-          :placeholder="sealIdFromLog() || '输入 Seal ID'"
+          :placeholder="sealIdFromLog || '输入 Seal ID'"
           style="width:100%;"
         />
         <div style="margin-top:6px;">

@@ -33,15 +33,17 @@ window.Pages.research_list = {
     isSeg: function () {
       var self = this;
       return function (k) { return self.seg === k; };
-    },
-    segParam: function () {
-      if (this.seg === 'all') return '';
-      return this.seg;
     }
   },
 
   methods: {
     go: function (p) { utils.go(p); },
+
+    // 分段 → api 参数
+    segParam: function () {
+      if (this.seg === 'all') return '';
+      return this.seg;
+    },
 
     load: function () {
       var self = this;

@@ -40,12 +40,6 @@ window.Pages.knowledge_list = {
       var self = this;
       return function (k) { return self.seg === k; };
     },
-    levelParam: function () {
-      if (this.seg === 'national') return 'national';
-      if (this.seg === 'local') return 'local';
-      if (this.seg === 'dept') return 'dept';
-      return '';
-    },
     // stats 头卡
     statCards: function () {
       var bl = this.byLevel || {};
@@ -60,6 +54,14 @@ window.Pages.knowledge_list = {
 
   methods: {
     go: function (p) { utils.go(p); },
+
+    // 法规 level → api 参数
+    levelParam: function () {
+      if (this.seg === 'national') return 'national';
+      if (this.seg === 'local') return 'local';
+      if (this.seg === 'dept') return 'dept';
+      return '';
+    },
 
     loadStats: function () {
       var self = this;

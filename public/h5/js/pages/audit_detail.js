@@ -97,7 +97,7 @@ window.Pages.audit_detail = {
     // 置信度百分比（method，避免与 computed 同名冲突）
     confPct: function () { return Math.round(Number(this.aiConfidence || 0)); },
     confColor: function () {
-      var p = this.confPct();
+      var p = this.confPct;
       if (p >= 85) return 'var(--success)';
       if (p >= 70) return 'var(--warning)';
       return 'var(--danger)';
@@ -211,31 +211,31 @@ window.Pages.audit_detail = {
       <div class="detail-row">
         <div class="dk">审核状态</div>
         <div class="dv">
-          <span class="tag" :class="statusTag()">{{ statusText() }}</span>
+          <span class="tag" :class="statusTag">{{ statusText }}</span>
         </div>
       </div>
       <div class="detail-row">
         <div class="dk">AI 判别结论</div>
         <div class="dv">
-          <span class="tag" :class="finalResultTag()">{{ finalResultText() }}</span>
+          <span class="tag" :class="finalResultTag">{{ finalResultText }}</span>
         </div>
       </div>
       <div class="detail-row">
         <div class="dk">提交人</div>
-        <div class="dv">{{ submitter() }}</div>
+        <div class="dv">{{ submitter }}</div>
       </div>
       <div class="detail-row">
         <div class="dk">提交时间</div>
-        <div class="dv">{{ submittedAt() }}</div>
+        <div class="dv">{{ submittedAt }}</div>
       </div>
       <div class="detail-row">
         <div class="dk">审核类型</div>
-        <div class="dv">{{ auditTypeText() }}</div>
+        <div class="dv">{{ auditTypeText }}</div>
       </div>
-      <div v-if="priorityText()" class="detail-row">
+      <div v-if="priorityText" class="detail-row">
         <div class="dk">优先级</div>
         <div class="dv">
-          <span class="tag" :class="priorityTag()">{{ priorityText() }}</span>
+          <span class="tag" :class="priorityTag">{{ priorityText }}</span>
         </div>
       </div>
     </div>
@@ -283,7 +283,7 @@ window.Pages.audit_detail = {
       <div v-if="actionMode === 'approve'" style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <span class="muted" style="font-size:13px;">AI 置信度</span>
-          <span :style="{ color: confColor() }" style="font-weight:600;font-size:16px;">{{ confPct() }}%</span>
+          <span :style="{ color: confColor }" style="font-weight:600;font-size:16px;">{{ confPct }}%</span>
         </div>
         <input
           type="range"
@@ -335,7 +335,7 @@ window.Pages.audit_detail = {
     <div v-if="notPending" class="card" style="margin-top:10px;">
       <div class="card-title">📋 审核结论</div>
       <div style="padding:12px 0;">
-        <span class="tag" :class="statusTag()" style="font-size:15px;padding:6px 16px;">{{ statusText() }}</span>
+        <span class="tag" :class="statusTag" style="font-size:15px;padding:6px 16px;">{{ statusText }}</span>
       </div>
     </div>
 
