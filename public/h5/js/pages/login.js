@@ -61,8 +61,10 @@ window.Pages.login = {
         });
         if (res && res.token && res.user) {
           Store.setAuth(res.token, res.user);
-          utils.toast('登录成功');
+          // 先跳转后弹 toast —— 保证 hashchange 一定被触发（toast 是锦上添花）
+          try { location.hash = ''; } catch (e) {}
           location.hash = '#/';
+          setTimeout(function () { utils.toast('登录成功'); }, 50);
         } else {
           utils.toast((res && res.message) || '登录失败，请检查账号密码');
         }
