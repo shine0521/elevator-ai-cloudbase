@@ -82,8 +82,15 @@ function verifyToken(token) {
 
 // 鉴权中间件（支持 Authorization header、token query、ev3_tok cookie）
 function authMiddleware(req, res, next) {
-  const token = req.headers['authorization'] || req.query.token || (req.cookies && req.cookies['ev3_tok']);
+  let token = req.headers['authorization'] || req.query.token || (req.cookies && req.cookies['ev3_tok']);
   if (!token) return res.status(401).json({ error: '未登录，请先登录' });
+
+  // 兼容标准 Authorization: Bearer <token>（HTTP 1.1 RFC 7235 规范）
+  // 旧版直接 verifyToken(整 header) 会被 'Bearer ' 前缀污染 base64 解码，
+  // 导致客户端 fetch 携带 Authorization 头鉴权 100% 失败（hash 路由 H5 全死）
+  if (typeof token === 'string' && /^Bearer\s+/i.test(token)) {
+    token = token.replace(/^Bearer\s+/i, '').trim();
+  }
 
   const parsed = verifyToken(token);
   if (!parsed) return res.status(401).json({ error: '无效的登录凭证' });

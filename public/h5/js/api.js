@@ -19,7 +19,7 @@
     var headers = { 'Content-Type': 'application/json' };
     var tk = Store.getToken();
     if (tk) headers['Authorization'] = 'Bearer ' + tk;
-    var conf = { method: method, headers: headers };
+    var conf = { method: method, headers: headers, credentials: 'include' };
     if (data !== undefined && data !== null) conf.body = JSON.stringify(data);
     var res;
     try {
